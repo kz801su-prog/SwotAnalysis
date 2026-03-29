@@ -221,7 +221,9 @@ export const aiRegistry = {
     return mockProvider.generateQuestions({ scope, tag, count });
   },
   analyze: async (pId: ProviderId, interview: Interview, answers: Answer[], title: string, targetName: string) => {
-    if (pId === "gemini") {
+    // Auto-upgrade mock→gemini when API key is available (covers interviews created before gemini was set as default)
+    const effectiveId = (pId === "mock" && getApiKey()) ? "gemini" : pId;
+    if (effectiveId === "gemini") {
       try { return await geminiProvider.analyze({ interview, answers, title, targetName }); }
       catch (e: any) {
         console.error("[Registry] Gemini Full Failure:", e);

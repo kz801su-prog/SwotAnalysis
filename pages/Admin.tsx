@@ -75,8 +75,8 @@ export default function AdminPage() {
   // Create State
   const [tag, setTag] = useState(`戦略立案データ分析＿${new Date().toISOString().slice(0, 10)}`);
   const [scope, setScope] = useState<InterviewScope>("personal");
-  const [questionAI, setQuestionAI] = useState<ProviderId>("mock");
-  const [analysisAI, setAnalysisAI] = useState<ProviderId>("mock");
+  const [questionAI, setQuestionAI] = useState<ProviderId>("gemini");
+  const [analysisAI, setAnalysisAI] = useState<ProviderId>("gemini");
   const [questionCount, setQuestionCount] = useState(20);
   const [isCreating, setIsCreating] = useState(false);
 
