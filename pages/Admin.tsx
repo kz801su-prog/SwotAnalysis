@@ -31,7 +31,7 @@ function SWOTSection({ title, items, colorClass }: { title: string; items: SWOTI
         {title}
       </div>
       <div className="p-4 space-y-5 flex-1 overflow-y-auto max-h-[500px]">
-        {items.map((item, i) => (
+        {(items || []).map((item, i) => (
           <div key={i} className="space-y-2 border-b border-slate-200/50 pb-4 last:border-0 last:pb-0">
             <div className="flex items-center justify-between gap-3 px-1">
               <div className="flex items-center gap-2">
@@ -63,7 +63,7 @@ function SWOTSection({ title, items, colorClass }: { title: string; items: SWOTI
             )}
           </div>
         ))}
-        {items.length === 0 && <div className="text-xs text-slate-400 italic text-center py-4">分析データなし</div>}
+        {(!items || items.length === 0) && <div className="text-xs text-slate-400 italic text-center py-4">分析データなし</div>}
       </div>
     </div>
   );
@@ -227,7 +227,13 @@ export default function AdminPage() {
     if (!selectedInterview) return;
     
     // SQLから直接最新データを取得（stateが古い場合に備えて）
+    await db.settingsDb.pull();
     const freshAnswers = db.getAnswers(selectedId);
+    if (freshAnswers.length === 0) {
+        alert("選択されたシステム（アンケート）に対する回答データがありません。\n※ 他のシステムを選択するか、回答一覧タブでデータが存在するシステムを確認してください。");
+        return;
+    }
+
     let targetAnswers = [...freshAnswers];
     let targetName = "組織全体";
     let resultMeta: Partial<AnalysisResult> = {};
@@ -281,9 +287,9 @@ export default function AdminPage() {
       setExistingAnalyses(db.getAnalyses(selectedId));
       setSelectedAnalysisResult(finalResult);
 
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert("分析に失敗しました。");
+      alert(`分析に失敗しました: ${e.message}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -796,10 +802,10 @@ export default function AdminPage() {
                   <div className="space-y-4">
                       <div className="space-y-2">
                           <label className="text-xs font-bold text-slate-500 uppercase">Gemini モデル名</label>
-                          <Input 
-                              placeholder="gemini-2.5-flash" 
+                          <Input
+                              placeholder="gemini-2.5-flash"
                               value={settings.geminiModel || "gemini-2.5-flash"}
-                              onChange={e => setSettings({...settings, geminiModel: e.target.value})}
+                              onChange={e => setSettings({...settings, geminiModel: e.target.value.trim()})}
                           />
                           <p className="text-[10px] text-slate-400">
                             ※ Google が新しいモデルを公開した際は、ここでモデル名を変更するだけで切り替え可能です。<br/>
@@ -945,8 +951,7 @@ export default function AdminPage() {
                         <Button
                             onClick={handleAnalyze}
                             isLoading={isAnalyzing}
-                            disabled={!selectedId || db.getAnswers(selectedId).length === 0}
-                            className="w-full"
+                            className={`w-full ${(!selectedId || db.getAnswers(selectedId).length === 0) ? "opacity-60 saturate-50" : ""}`}
                         >
                             <Zap className="w-4 h-4 mr-2" />
                             分析実行・保存
@@ -1009,14 +1014,14 @@ export default function AdminPage() {
                             </div>
                             
                             <div className="grid gap-6 md:grid-cols-2">
-                                <SWOTSection title="STRENGTH (強み)" items={selectedAnalysisResult.swot.S} colorClass="text-blue-600" />
-                                <SWOTSection title="WEAKNESS (弱み)" items={selectedAnalysisResult.swot.W} colorClass="text-red-600" />
-                                <SWOTSection title="OPPORTUNITY (機会)" items={selectedAnalysisResult.swot.O} colorClass="text-green-600" />
-                                <SWOTSection title="THREAT (脅威)" items={selectedAnalysisResult.swot.T} colorClass="text-amber-600" />
+                                <SWOTSection title="STRENGTH (強み)" items={selectedAnalysisResult.swot?.S || []} colorClass="text-blue-600" />
+                                <SWOTSection title="WEAKNESS (弱み)" items={selectedAnalysisResult.swot?.W || []} colorClass="text-red-600" />
+                                <SWOTSection title="OPPORTUNITY (機会)" items={selectedAnalysisResult.swot?.O || []} colorClass="text-green-600" />
+                                <SWOTSection title="THREAT (脅威)" items={selectedAnalysisResult.swot?.T || []} colorClass="text-amber-600" />
                             </div>
                             <Card title="AI考察メモ">
                                 <ul className="list-disc list-inside text-sm text-slate-600">
-                                    {selectedAnalysisResult.notes.map((n, i) => <li key={i}>{n}</li>)}
+                                    {(selectedAnalysisResult.notes || []).map((n, i) => <li key={i}>{n}</li>)}
                                 </ul>
                             </Card>
                         </div>

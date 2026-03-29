@@ -154,7 +154,7 @@ export default function Dashboard({ user }: DashboardProps) {
     const orgInterviews = interviews.filter(i => i.scope !== 'personal');
 
     const isCurrentInterviewFullyAnswered = selectedInterview &&
-        answers.find(a => a.interviewId === selectedInterview.interviewId && a.userId === user.id)?.responses.length === selectedInterview.questions.length;
+        answers.find(a => a.interviewId === selectedInterview.interviewId && a.userId === user.id)?.responses?.length === selectedInterview.questions.length;
 
     const InterviewList = ({ list, emptyMsg, isPersonal }: { list: Interview[], emptyMsg: string, isPersonal?: boolean }) => (
         <div className="space-y-3">

@@ -191,7 +191,10 @@ export const db = {
       if (!data) return defaults;
       try {
         const parsed = JSON.parse(data);
-        return { ...defaults, ...parsed, gasUrl: parsed.gasUrl || defaults.gasUrl };
+        const merged = { ...defaults, ...parsed, gasUrl: parsed.gasUrl || defaults.gasUrl };
+        // Upgrade stale model name that was incorrectly saved as gemini-1.5-flash
+        if (merged.geminiModel === "gemini-1.5-flash") merged.geminiModel = "gemini-2.5-flash";
+        return merged;
       } catch (e) {
         return defaults;
       }

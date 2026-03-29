@@ -15,7 +15,7 @@ export function Card({ title, sub, children, className = "" }: React.PropsWithCh
   );
 }
 
-export function Button({ variant = "primary", className = "", isLoading, ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger", isLoading?: boolean }) {
+export function Button({ variant = "primary", className = "", type = "button", isLoading, ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" | "danger", isLoading?: boolean }) {
   const base = "inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed";
 
   // Theme Color Change: Red -> Emerald (Fresh Green)
@@ -27,7 +27,7 @@ export function Button({ variant = "primary", className = "", isLoading, ...rest
   };
 
   return (
-    <button className={`${base} ${variants[variant]} ${className}`} disabled={isLoading || rest.disabled} {...rest}>
+    <button type={type} className={`${base} ${variants[variant]} ${className}`} disabled={isLoading || rest.disabled} {...rest}>
       {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
       {rest.children}
     </button>
@@ -70,7 +70,8 @@ export function Badge({ children, color = "default", className = "" }: React.Pro
   const colors = {
     default: "bg-slate-100 border-slate-200 text-slate-600",
     success: "bg-emerald-50 border-emerald-200 text-emerald-700",
-    warning: "bg-amber-50 border-amber-200 text-amber-700"
+    warning: "bg-amber-50 border-amber-200 text-amber-700",
+    outline: "bg-transparent border-slate-200 text-slate-400"
   };
   return (
     <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full border ${colors[color]} ${className}`}>

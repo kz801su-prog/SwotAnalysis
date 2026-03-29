@@ -163,9 +163,27 @@ ${JSON.stringify(args.answers.map(a => ({ user: a.name, responses: a.responses }
           responseMimeType: "application/json"
         }
       });
+      
+      // Attempt to extract text safely
       const body = response.text?.replace(/```json|```/g, "").trim() || "{}";
-      const data = JSON.parse(body);
-      console.log(`[Gemini] Analysis complete using ${modelName}:`, Object.keys(data.swot || {}).map(k => `${k}:${(data.swot[k] || []).length}`));
+      let data;
+      try {
+          data = JSON.parse(body);
+      } catch (err) {
+          console.error("[Gemini] Parse Failure. Body:", body);
+          throw new Error("AIの応答をJSONとして解析できませんでした。");
+      }
+
+      // Defensive initialization of SWOT object
+      const swot = data.swot || {};
+      const safeSwot = {
+        S: Array.isArray(swot.S) ? swot.S : [],
+        W: Array.isArray(swot.W) ? swot.W : [],
+        O: Array.isArray(swot.O) ? swot.O : [],
+        T: Array.isArray(swot.T) ? swot.T : []
+      };
+
+      console.log(`[Gemini] Analysis complete using ${modelName}:`, Object.keys(safeSwot).map(k => `${k}:${safeSwot[k].length}`));
       
       return {
         interviewId: args.interview.interviewId,
@@ -175,8 +193,8 @@ ${JSON.stringify(args.answers.map(a => ({ user: a.name, responses: a.responses }
         targetName: args.targetName,
         respondentCount: args.answers.length,
         providerUsed: 'gemini',
-        swot: data.swot,
-        notes: data.notes || []
+        swot: safeSwot,
+        notes: Array.isArray(data.notes) ? data.notes : []
       };
     } catch (e: any) {
       console.error(`[Gemini] ${modelName} failed:`, e.message);
@@ -207,8 +225,7 @@ export const aiRegistry = {
       try { return await geminiProvider.analyze({ interview, answers, title, targetName }); }
       catch (e: any) {
         console.error("[Registry] Gemini Full Failure:", e);
-        alert("Gemini分析失敗:\n" + e.message);
-        return mockProvider.analyze({ interview, answers, title, targetName });
+        throw new Error("Gemini分析失敗:\n" + e.message + "\n\n※設定（モデル名やAPIキーなど）を確認してください。");
       }
     }
     return mockProvider.analyze({ interview, answers, title, targetName });

@@ -321,19 +321,19 @@ export default function Login({ onLogin }: LoginProps) {
             <form onSubmit={handleAuthSubmit} className="space-y-4">
               <div className="space-y-2">
                 <label className="text-xs font-medium text-slate-500 uppercase">会社ID (3桁)</label>
-                <Input placeholder="例: 101" value={id} onChange={e => { setId(e.target.value); setError(''); }} />
+                <Input name="username" id="username" autoComplete="username" placeholder="例: 101" value={id} onChange={e => { setId(e.target.value); setError(''); }} />
               </div>
 
               <div className="space-y-2">
                 <label className="text-xs font-medium text-slate-500 uppercase">パスワード</label>
-                <Input type="password" placeholder="••••••••" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} />
+                <Input name="password" id="password" autoComplete="current-password" type="password" placeholder="••••••••" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} />
               </div>
 
               {isRegisterMode && (
                 <div className="space-y-4 pt-4 border-t border-slate-100">
                   <div className="space-y-2">
                     <label className="text-xs font-medium text-slate-500 uppercase">氏名 (Full Name)</label>
-                    <Input placeholder="例: 山田 太郎" value={name} onChange={e => { setName(e.target.value); setError(''); }} />
+                    <Input name="name" autoComplete="name" placeholder="例: 山田 太郎" value={name} onChange={e => { setName(e.target.value); setError(''); }} />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -390,6 +390,7 @@ export default function Login({ onLogin }: LoginProps) {
               <div className="space-y-2 text-center">
                  <label className="text-xs font-medium text-slate-500 uppercase">アプリに表示された6桁のコード</label>
                  <Input
+                   name="one-time-code" autoComplete="one-time-code"
                    type="text" autoFocus placeholder="000000" maxLength={6}
                    value={mfaToken} onChange={e => { setMfaToken(e.target.value.replace(/\D/g, '')); setError(''); }}
                    className="text-center text-xl tracking-[0.5em] font-mono py-4"
@@ -425,6 +426,7 @@ export default function Login({ onLogin }: LoginProps) {
               <div className="space-y-2">
                  <label className="text-xs font-medium text-slate-500 uppercase text-center block">アプリの6桁の認証コード</label>
                  <Input
+                   name="one-time-code" autoComplete="one-time-code"
                    type="text" autoFocus placeholder="000000" maxLength={6}
                    value={mfaToken} onChange={e => { setMfaToken(e.target.value.replace(/\D/g, '')); setError(''); }}
                    className="text-center text-2xl tracking-[0.5em] font-mono py-6"

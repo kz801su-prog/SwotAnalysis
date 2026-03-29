@@ -39,6 +39,7 @@ function ensureSchema($pdo) {
         $ansCols = $pdo->query("SHOW COLUMNS FROM answers_new")->fetchAll(PDO::FETCH_COLUMN);
         if (!in_array('answerId', $ansCols)) {
             // 旧テーブルをバックアップとして保存し、正しいスキーマで再作成
+            $pdo->exec("DROP TABLE IF EXISTS answers_old_backup");
             $pdo->exec("RENAME TABLE answers_new TO answers_old_backup");
             $pdo->exec("CREATE TABLE answers_new (answerId VARCHAR(150) PRIMARY KEY, interviewId VARCHAR(50), scope VARCHAR(20), userId VARCHAR(50), name VARCHAR(100), dept VARCHAR(100), role VARCHAR(100), responses LONGTEXT, answeredAt VARCHAR(50), INDEX idx_interview_user (interviewId, userId)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
