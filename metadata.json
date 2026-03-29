@@ -1,0 +1,5 @@
+{
+  "name": "Analysis by Wisteria",
+  "description": "A futuristic, plug-in based SWOT analysis engine. Features a 5-layer architecture separating UI, AI logic, and data storage. Supports flexible AI provider selection for question generation and result analysis.",
+  "requestFramePermissions": []
+}

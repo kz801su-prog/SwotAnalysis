@@ -1,0 +1,3 @@
+$dbname = 'kz801xs_swotdb'; // ← ここを書き換える
+$user = 'kz801xs_692';     // ← ここを書き換える
+$pass = 'W|x7<J!BGGpG';     // ← ここを書き換える
