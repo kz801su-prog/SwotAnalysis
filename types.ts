@@ -85,9 +85,10 @@ export interface AnalysisResult {
   targetName: string;     // 分析対象（「組織全体」「〇〇部」「〇〇太郎」等）
   respondentCount: number; // 分析対象となった回答者数
   providerUsed: ProviderId;
-  targetUserId?: string; 
-  targetDept?: string; 
-  targetTeam?: string; 
+  targetUserId?: string;
+  targetDept?: string;
+  targetTeam?: string;
+  positionFilter?: string;
   swot: {
     S: SWOTItem[];
     W: SWOTItem[];

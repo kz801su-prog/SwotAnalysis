@@ -5,6 +5,27 @@ import { aiRegistry, providers } from "../services/aiRegistry";
 import { Interview, AnalysisResult, SWOTItem, InterviewScope, ProviderId, UserProfile, POSITION_OPTIONS, POSITION_HIERARCHY, PositionKey } from "../types";
 import { Zap, PieChart, Plus, Eye, Database, Upload, Download, Settings, Users, User, Trash2, Edit2, ShieldAlert, Target, Briefcase, FileText, BarChart3, Cloud, RefreshCw, UserPlus } from "lucide-react";
 
+const POSITION_FILTERS = [
+  { value: "ALL",          label: "全階級（全員）" },
+  { value: "MEMBER_ONLY",  label: "一般社員のみ" },
+  { value: "MANAGER_UP",   label: "課長以上" },
+  { value: "DIRECTOR_UP",  label: "部長以上" },
+  { value: "GM_UP",        label: "本部長以上" },
+  { value: "EXEC_ONLY",    label: "取締役のみ" },
+] as const;
+
+type PositionFilterKey = typeof POSITION_FILTERS[number]["value"];
+
+const POSITION_FILTER_LABELS: Record<PositionFilterKey, string> = {
+  ALL: "", MEMBER_ONLY: "一般社員のみ", MANAGER_UP: "課長以上",
+  DIRECTOR_UP: "部長以上", GM_UP: "本部長以上", EXEC_ONLY: "取締役のみ"
+};
+
+function getPositionLevel(position?: string): number {
+  const levels: Record<string, number> = { member: 1, manager: 2, director: 3, general_manager: 4, executive: 5 };
+  return levels[position || "member"] || 1;
+}
+
 const SCOPE_OPTIONS = [
   { value: "personal", label: "個人 (Personal)" },
   { value: "team", label: "課 (Team)" },
@@ -95,7 +116,11 @@ export default function AdminPage() {
   
   // Analysis Filter State
   const [filterMode, setFilterMode] = useState<"ALL" | "USER" | "DEPT" | "TEAM">("ALL");
-  const [targetValue, setTargetValue] = useState<string>(""); 
+  const [targetValue, setTargetValue] = useState<string>("");
+  const [positionFilter, setPositionFilter] = useState<PositionFilterKey>("ALL");
+
+  // Result View State
+  const [viewMode, setViewMode] = useState<"detail" | "summary">("detail");
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [preview, setPreview] = useState<Interview | null>(null);
@@ -258,6 +283,23 @@ export default function AdminPage() {
         resultMeta.targetTeam = targetValue;
     }
 
+    // 階級フィルター適用
+    if (positionFilter !== "ALL") {
+        targetAnswers = targetAnswers.filter(a => {
+            const user = allUsers.find(u => u.id === a.userId);
+            const level = getPositionLevel(user?.position);
+            if (positionFilter === "MEMBER_ONLY") return level === 1;
+            if (positionFilter === "MANAGER_UP")  return level >= 2;
+            if (positionFilter === "DIRECTOR_UP") return level >= 3;
+            if (positionFilter === "GM_UP")       return level >= 4;
+            if (positionFilter === "EXEC_ONLY")   return level === 5;
+            return true;
+        });
+        const posLabel = POSITION_FILTER_LABELS[positionFilter];
+        if (posLabel) targetName = `${targetName}（${posLabel}）`;
+        resultMeta.positionFilter = positionFilter;
+    }
+
     if (targetAnswers.length === 0) {
         alert("選択された対象の回答データがありません。");
         return;
@@ -294,6 +336,69 @@ export default function AdminPage() {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  const handleDownloadReport = () => {
+    if (!selectedAnalysisResult) return;
+    const r = selectedAnalysisResult;
+    const date = new Date(r.generatedAt).toLocaleString('ja-JP');
+    const posLabel = r.positionFilter ? POSITION_FILTER_LABELS[r.positionFilter as PositionFilterKey] || "" : "";
+
+    const esc = (s: string) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+    const section = (axis: "S"|"W"|"O"|"T", title: string, color: string) => {
+      const items = r.swot?.[axis] || [];
+      const rows = items.slice(0, 10).map((item, i) => `
+        <tr>
+          <td style="width:24px;font-weight:bold;color:${color};vertical-align:top">${i+1}</td>
+          <td style="font-weight:600;vertical-align:top;padding-bottom:2px">${esc(item.item)}</td>
+          <td style="color:#555;font-size:12px;vertical-align:top">スコア ${item.score}</td>
+        </tr>
+        <tr><td></td><td colspan="2" style="font-size:12px;color:#444;padding-bottom:8px">${esc(item.reason)}${item.action ? `<br/><span style="color:#1a7a4a">→ ${esc(item.action)}</span>` : ""}${item.reconfirm ? `<br/><span style="color:#888">要確認: ${esc(item.reconfirm)}</span>` : ""}</td></tr>`).join("");
+      return `<div style="break-inside:avoid;margin-bottom:24px">
+        <div style="background:${color};color:#fff;font-weight:bold;font-size:13px;padding:6px 12px;border-radius:6px 6px 0 0;letter-spacing:.05em">${esc(title)}</div>
+        <div style="border:1px solid #e0e0e0;border-top:none;border-radius:0 0 6px 6px;padding:10px 12px">
+          ${items.length === 0 ? '<p style="color:#aaa;font-size:12px">データなし</p>' : `<table style="width:100%;border-collapse:collapse">${rows}</table>`}
+        </div></div>`;
+    };
+
+    const notes = (r.notes || []).map(n => `<li style="margin-bottom:4px">${esc(n)}</li>`).join("");
+
+    const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
+<title>SWOT分析レポート - ${esc(r.title)}</title>
+<style>body{font-family:'Hiragino Sans','Meiryo',sans-serif;margin:32px;color:#222;line-height:1.6}
+h1{font-size:20px;border-bottom:2px solid #1a7a4a;padding-bottom:8px;color:#1a7a4a}
+.meta{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#555;margin:8px 0 24px}
+.meta span{background:#f5f5f5;padding:2px 10px;border-radius:12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.notes{margin-top:24px;background:#fffde7;border:1px solid #ffe082;border-radius:6px;padding:12px 16px}
+.notes h2{font-size:14px;margin:0 0 8px;color:#7a6000}
+@media print{.grid{grid-template-columns:1fr 1fr}}</style></head>
+<body>
+<h1>SWOT分析レポート</h1>
+<div class="meta">
+  <span>📋 ${esc(r.title)}</span>
+  <span>対象: ${esc(r.targetName)}</span>
+  <span>スコープ: ${esc(r.scope)}</span>
+  ${posLabel ? `<span>階級: ${esc(posLabel)}</span>` : ""}
+  <span>回答数: ${r.respondentCount}名</span>
+  <span>生成: ${esc(date)}</span>
+</div>
+<div class="grid">
+  ${section("S","STRENGTH（強み）","#2563eb")}
+  ${section("W","WEAKNESS（弱み）","#dc2626")}
+  ${section("O","OPPORTUNITY（機会）","#16a34a")}
+  ${section("T","THREAT（脅威）","#d97706")}
+</div>
+${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding-left:20px">${notes}</ul></div>` : ""}
+</body></html>`;
+
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `SWOT_${r.title}_${r.targetName}_${r.generatedAt.slice(0,10)}.html`.replace(/[\\/:*?"<>|]/g, "_");
+    a.click();
+    URL.revokeObjectURL(a.href);
   };
 
   const handleDeleteUser = (id: string) => {
@@ -933,7 +1038,7 @@ export default function AdminPage() {
 
                             {filterMode !== "ALL" && (
                                 <div className="animate-in fade-in slide-in-from-top-1">
-                                    <Select 
+                                    <Select
                                         value={targetValue}
                                         onChange={(e) => setTargetValue(e.target.value)}
                                         options={
@@ -946,7 +1051,31 @@ export default function AdminPage() {
                                 </div>
                             )}
                         </div>
-                        
+
+                        {/* 階級フィルター */}
+                        <div className="p-3 bg-purple-50 rounded-xl border border-purple-100 space-y-2">
+                            <label className="text-xs font-medium text-purple-700 uppercase tracking-wider flex items-center gap-1">
+                                <Users className="w-3 h-3" /> 階級フィルター
+                            </label>
+                            <div className="space-y-1.5">
+                                {POSITION_FILTERS.map(pf => (
+                                    <label key={pf.value} className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                                        <input
+                                            type="radio"
+                                            name="positionFilter"
+                                            value={pf.value}
+                                            checked={positionFilter === pf.value}
+                                            onChange={() => setPositionFilter(pf.value)}
+                                            className="accent-purple-600"
+                                        />
+                                        <span className={positionFilter === pf.value ? "font-bold text-purple-700" : "text-slate-600"}>
+                                            {pf.label}
+                                        </span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+
                         <div className="bg-white border border-slate-100 rounded-lg p-3 text-center">
                              <div className="text-xs text-slate-500 mb-1">対象回答数</div>
                              <div className="text-xl font-bold text-slate-800">
@@ -1003,35 +1132,79 @@ export default function AdminPage() {
                 <div className="lg:col-span-2">
                     {selectedAnalysisResult ? (
                         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                                <div>
+                            {/* Header */}
+                            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                                <div className="flex-1 min-w-0">
                                     <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1">Analysis Report</div>
-                                    <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                                        {selectedAnalysisResult.title}
-                                    </h3>
+                                    <h3 className="text-xl font-bold text-slate-800">{selectedAnalysisResult.title}</h3>
                                     <div className="flex flex-wrap gap-2 mt-2">
-                                        <Badge variant="outline" className="text-slate-500 bg-slate-50 border-slate-200">
-                                            対象: {selectedAnalysisResult.targetName}
-                                        </Badge>
-                                        <Badge variant="outline" className="text-slate-500 bg-slate-50 border-slate-200">
-                                            集計人数: {selectedAnalysisResult.respondentCount} 名
-                                        </Badge>
+                                        <Badge color="default">対象: {selectedAnalysisResult.targetName}</Badge>
+                                        {selectedAnalysisResult.positionFilter && selectedAnalysisResult.positionFilter !== "ALL" && (
+                                            <Badge color="warning">{POSITION_FILTER_LABELS[selectedAnalysisResult.positionFilter as PositionFilterKey] || selectedAnalysisResult.positionFilter}</Badge>
+                                        )}
+                                        <Badge color="default">集計: {selectedAnalysisResult.respondentCount}名</Badge>
+                                        <Badge color="success">{selectedAnalysisResult.scope}</Badge>
                                     </div>
                                 </div>
-                                <div className="text-right">
-                                    <div className="text-[10px] text-slate-400 uppercase font-medium">Generated At</div>
-                                    <div className="text-sm font-semibold text-slate-600">
+                                <div className="flex flex-col items-end gap-2 shrink-0">
+                                    <div className="text-[10px] text-slate-400 uppercase font-medium">
                                         {new Date(selectedAnalysisResult.generatedAt).toLocaleString()}
                                     </div>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => setViewMode(v => v === "detail" ? "summary" : "detail")}
+                                            className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center gap-1 transition-colors"
+                                        >
+                                            <BarChart3 className="w-3.5 h-3.5" />
+                                            {viewMode === "detail" ? "一覧表示" : "詳細表示"}
+                                        </button>
+                                        <button
+                                            onClick={handleDownloadReport}
+                                            className="text-xs px-3 py-1.5 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex items-center gap-1 transition-colors"
+                                        >
+                                            <Download className="w-3.5 h-3.5" />
+                                            レポート
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                            
-                            <div className="grid gap-6 md:grid-cols-2">
-                                <SWOTSection title="STRENGTH (強み)" items={selectedAnalysisResult.swot?.S || []} colorClass="text-blue-600" />
-                                <SWOTSection title="WEAKNESS (弱み)" items={selectedAnalysisResult.swot?.W || []} colorClass="text-red-600" />
-                                <SWOTSection title="OPPORTUNITY (機会)" items={selectedAnalysisResult.swot?.O || []} colorClass="text-green-600" />
-                                <SWOTSection title="THREAT (脅威)" items={selectedAnalysisResult.swot?.T || []} colorClass="text-amber-600" />
-                            </div>
+
+                            {viewMode === "summary" ? (
+                                /* ① 箇条書き一目表 */
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    {([
+                                        { axis: "S" as const, label: "STRENGTH（強み）",  bg: "bg-blue-50",   border: "border-blue-200",   num: "text-blue-500",   head: "bg-blue-600" },
+                                        { axis: "W" as const, label: "WEAKNESS（弱み）",  bg: "bg-red-50",    border: "border-red-200",    num: "text-red-500",    head: "bg-red-600" },
+                                        { axis: "O" as const, label: "OPPORTUNITY（機会）",bg: "bg-green-50",  border: "border-green-200",  num: "text-green-600",  head: "bg-green-600" },
+                                        { axis: "T" as const, label: "THREAT（脅威）",    bg: "bg-amber-50",  border: "border-amber-200",  num: "text-amber-600",  head: "bg-amber-600" },
+                                    ]).map(({ axis, label, bg, border, num, head }) => {
+                                        const items = selectedAnalysisResult.swot?.[axis] || [];
+                                        return (
+                                            <div key={axis} className={`rounded-xl border ${border} overflow-hidden`}>
+                                                <div className={`${head} text-white text-xs font-bold px-4 py-2 tracking-wider`}>{label}</div>
+                                                <ul className={`${bg} p-4 space-y-2`}>
+                                                    {items.slice(0, 10).map((item, i) => (
+                                                        <li key={i} className="flex items-start gap-2 text-sm text-slate-800">
+                                                            <span className={`font-bold text-xs shrink-0 mt-0.5 ${num}`}>{i + 1}.</span>
+                                                            <span>{item.item}</span>
+                                                        </li>
+                                                    ))}
+                                                    {items.length === 0 && <li className="text-xs text-slate-400 italic">データなし</li>}
+                                                </ul>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                /* 詳細ビュー */
+                                <div className="grid gap-6 md:grid-cols-2">
+                                    <SWOTSection title="STRENGTH (強み)" items={selectedAnalysisResult.swot?.S || []} colorClass="text-blue-600" />
+                                    <SWOTSection title="WEAKNESS (弱み)" items={selectedAnalysisResult.swot?.W || []} colorClass="text-red-600" />
+                                    <SWOTSection title="OPPORTUNITY (機会)" items={selectedAnalysisResult.swot?.O || []} colorClass="text-green-600" />
+                                    <SWOTSection title="THREAT (脅威)" items={selectedAnalysisResult.swot?.T || []} colorClass="text-amber-600" />
+                                </div>
+                            )}
+
                             <Card title="AI考察メモ">
                                 <ul className="list-disc list-inside text-sm text-slate-600">
                                     {(selectedAnalysisResult.notes || []).map((n, i) => <li key={i}>{n}</li>)}

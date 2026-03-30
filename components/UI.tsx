@@ -66,7 +66,7 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement> & { 
   );
 }
 
-export function Badge({ children, color = "default", className = "" }: React.PropsWithChildren<{ color?: "default" | "success" | "warning"; className?: string }>) {
+export function Badge({ children, color = "default", className = "" }: React.PropsWithChildren<{ color?: "default" | "success" | "warning" | "outline"; className?: string }>) {
   const colors = {
     default: "bg-slate-100 border-slate-200 text-slate-600",
     success: "bg-emerald-50 border-emerald-200 text-emerald-700",
