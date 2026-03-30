@@ -515,7 +515,7 @@ export default function AdminPage() {
                             <Select value={analysisAI} onChange={(e) => setAnalysisAI(e.target.value as any)} options={aiOptions} />
                         </div>
                         <div className="text-[10px] text-slate-400 mt-2">
-                             ※ Google Geminiを選択した場合、環境変数 (API_KEY) が使用されます。
+                             ※ Google Geminiを選択した場合、設定タブのAPIキーが使用されます。
                         </div>
                     </div>
 
@@ -800,6 +800,18 @@ export default function AdminPage() {
           <div className="animate-in fade-in slide-in-from-right-4 space-y-6">
               <Card title="AI モデル設定" sub="使用するGeminiモデルを変更できます（再ビルド不要）">
                   <div className="space-y-4">
+                      <div className="space-y-2">
+                          <label className="text-xs font-bold text-slate-500 uppercase">Gemini APIキー</label>
+                          <Input
+                              type="password"
+                              placeholder="AIzaSy..."
+                              value={settings.geminiApiKey || ""}
+                              onChange={e => setSettings({...settings, geminiApiKey: e.target.value.trim()})}
+                          />
+                          <p className="text-[10px] text-slate-400">
+                            ※ Google AI Studio で取得したAPIキーを入力してください。ここで設定したキーが優先されます。
+                          </p>
+                      </div>
                       <div className="space-y-2">
                           <label className="text-xs font-bold text-slate-500 uppercase">Gemini モデル名</label>
                           <Input

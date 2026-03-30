@@ -19,6 +19,7 @@ export interface SystemSettings {
   gasUrl: string;
   autoSync: boolean;
   geminiModel: string; // e.g. "gemini-2.5-flash"
+  geminiApiKey: string;
 }
 
 export const db = {
@@ -182,10 +183,11 @@ export const db = {
 
   settingsDb: {
     get: (): SystemSettings => {
-      const defaults: SystemSettings = { 
-        gasUrl: "https://kz801xs.xsrv.jp/vitsw/api.php", 
-        autoSync: true, 
-        geminiModel: "gemini-2.5-flash"
+      const defaults: SystemSettings = {
+        gasUrl: "https://kz801xs.xsrv.jp/vitsw/api.php",
+        autoSync: true,
+        geminiModel: "gemini-2.5-flash",
+        geminiApiKey: ""
       };
       const data = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       if (!data) return defaults;

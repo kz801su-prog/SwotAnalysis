@@ -2,16 +2,20 @@ import { AIProvider, InterviewScope, Question, AnalysisResult, Answer, Interview
 import { GoogleGenAI } from "@google/genai";
 import { db } from "./storage";
 
-// API Key access
+// API Key access — settings (localStorage) takes priority over build-time env var
 const getApiKey = (): string => {
-    const key = (import.meta as any).env?.VITE_GEMINI_API_KEY || (process.env as any)?.API_KEY || "";
-    const cleanKey = key.trim();
-    if (cleanKey) {
-        console.log(`[AI Registry] API Key loaded (len=${cleanKey.length}, prefix=${cleanKey.substring(0, 8)}...)`);
-    } else {
-        console.warn("[AI Registry] WARNING: No API key found. Set VITE_GEMINI_API_KEY in .env");
+    const fromSettings = db.settingsDb.get().geminiApiKey?.trim();
+    if (fromSettings) {
+        console.log(`[AI Registry] API Key loaded from settings (len=${fromSettings.length}, prefix=${fromSettings.substring(0, 8)}...)`);
+        return fromSettings;
     }
-    return cleanKey;
+    const fromEnv = ((import.meta as any).env?.VITE_GEMINI_API_KEY || (process.env as any)?.API_KEY || "").trim();
+    if (fromEnv) {
+        console.log(`[AI Registry] API Key loaded from env (len=${fromEnv.length}, prefix=${fromEnv.substring(0, 8)}...)`);
+    } else {
+        console.warn("[AI Registry] WARNING: No API key found. Set it in Admin > Sync settings or in .env");
+    }
+    return fromEnv;
 };
 
 // Model name is read from settings (changeable from admin UI without rebuild)
