@@ -225,6 +225,7 @@ export default function AdminPage() {
   const handleAnalyze = async () => {
     const selectedInterview = interviews.find(i => i.interviewId === selectedId);
     if (!selectedInterview) return;
+    console.log("[handleAnalyze] interview.analysisAI =", selectedInterview.analysisAI, "| settings =", db.settingsDb.get());
     
     // SQLから直接最新データを取得（stateが古い場合に備えて）
     await db.settingsDb.pull();
