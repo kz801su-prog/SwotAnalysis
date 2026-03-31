@@ -5,25 +5,25 @@ import { aiRegistry, providers } from "../services/aiRegistry";
 import { Interview, AnalysisResult, SWOTItem, InterviewScope, ProviderId, UserProfile, POSITION_OPTIONS, POSITION_HIERARCHY, PositionKey } from "../types";
 import { Zap, PieChart, Plus, Eye, Database, Upload, Download, Settings, Users, User, Trash2, Edit2, ShieldAlert, Target, Briefcase, FileText, BarChart3, Cloud, RefreshCw, UserPlus } from "lucide-react";
 
-const POSITION_FILTERS = [
-  { value: "ALL",          label: "全階級（全員）" },
-  { value: "MEMBER_ONLY",  label: "一般社員のみ" },
-  { value: "MANAGER_UP",   label: "課長以上" },
-  { value: "DIRECTOR_UP",  label: "部長以上" },
-  { value: "GM_UP",        label: "本部長以上" },
-  { value: "EXEC_ONLY",    label: "取締役のみ" },
-] as const;
+const ALL_POSITION_KEYS: PositionKey[] = ['member', 'manager', 'director', 'general_manager', 'executive'];
 
-type PositionFilterKey = typeof POSITION_FILTERS[number]["value"];
-
-const POSITION_FILTER_LABELS: Record<PositionFilterKey, string> = {
-  ALL: "", MEMBER_ONLY: "一般社員のみ", MANAGER_UP: "課長以上",
-  DIRECTOR_UP: "部長以上", GM_UP: "本部長以上", EXEC_ONLY: "取締役のみ"
-};
-
-function getPositionLevel(position?: string): number {
+// 代理・代行・補佐・心得などを正位に格上げしてレベルを返す
+function getPositionLevel(position?: string, roleString?: string): number {
   const levels: Record<string, number> = { member: 1, manager: 2, director: 3, general_manager: 4, executive: 5 };
-  return levels[position || "member"] || 1;
+  // PositionKey が明示的に設定されていれば優先
+  if (position && position !== 'member' && levels[position] !== undefined) return levels[position];
+  // 役職文字列から推定（代理/代行/補佐/心得 → 正位に格上げ）
+  const normalized = (roleString || '').replace(/代理$|補佐$|代行$|心得$/, '').trim();
+  if (/取締役/.test(normalized)) return 5;
+  if (/本部長/.test(normalized)) return 4;
+  if (/部長/.test(normalized)) return 3;
+  if (/課長/.test(normalized)) return 2;
+  return levels[position || 'member'] || 1;
+}
+
+function levelToKey(level: number): PositionKey {
+  const map: Record<number, PositionKey> = { 1: 'member', 2: 'manager', 3: 'director', 4: 'general_manager', 5: 'executive' };
+  return map[level] || 'member';
 }
 
 const SCOPE_OPTIONS = [
@@ -34,13 +34,14 @@ const SCOPE_OPTIONS = [
 ];
 
 const DEPARTMENTS = [
-  "管理本部", 
-  "イズライフ事業部", 
-  "プローン事業部", 
-  "ブランチ事業部", 
-  "JIP", 
-  "IDC企画部", 
-  "IDC東京", 
+  "管理本部",
+  "営業本部",
+  "イズライフ事業部",
+  "プローン事業部",
+  "ブランチ事業部",
+  "JIP",
+  "IDC企画部",
+  "IDC東京",
   "TLC"
 ];
 
@@ -117,7 +118,7 @@ export default function AdminPage() {
   // Analysis Filter State
   const [filterMode, setFilterMode] = useState<"ALL" | "USER" | "DEPT" | "TEAM">("ALL");
   const [targetValue, setTargetValue] = useState<string>("");
-  const [positionFilter, setPositionFilter] = useState<PositionFilterKey>("ALL");
+  const [selectedPositions, setSelectedPositions] = useState<Set<PositionKey>>(new Set(ALL_POSITION_KEYS));
 
   // Result View State
   const [viewMode, setViewMode] = useState<"detail" | "summary">("detail");
@@ -198,14 +199,33 @@ export default function AdminPage() {
   // Load answers and existing analyses when interview changes for Analysis Tab
   useEffect(() => {
     if (selectedId && activeTab === 'analyze') {
-      // SQLから最新の回答を取得してから分析対象を確定する
+      // アンケートのスコープに応じてフィルターモードを自動設定
+      const interview = interviews.find((i: Interview) => i.interviewId === selectedId);
+      if (interview) {
+        if (interview.scope === 'org')      { setFilterMode('ALL');  setTargetValue(''); }
+        else if (interview.scope === 'dept') { setFilterMode('DEPT'); }
+        else if (interview.scope === 'team') { setFilterMode('TEAM'); }
+        else                                 { setFilterMode('USER'); } // personal
+      }
+
+      // SQLから最新の回答・ユーザー情報を取得し、対象の初期値を確定する
       db.settingsDb.pull().then(() => {
+        const freshUsers = db.getAllUsers();
+        setAllUsers(freshUsers);
         setExistingAnalyses(db.getAnalyses(selectedId));
-        setAllUsers(db.getAllUsers()); // ユーザー情報も最新化（部署・課フィルター用）
+
+        // ユーザー一覧確定後に targetValue の初期値を設定
+        if (interview?.scope === 'dept') {
+          const depts = Array.from(new Set(freshUsers.filter(u => u.dept).map(u => u.dept!)));
+          setTargetValue((v: string) => v || depts[0] || '');
+        } else if (interview?.scope === 'team') {
+          const teams = Array.from(new Set(freshUsers.filter((u: UserProfile) => u.team).map((u: UserProfile) => u.team!)));
+          setTargetValue((v: string) => v || teams[0] || '');
+        } else if (interview?.scope === 'personal') {
+          setTargetValue((v: string) => v || freshUsers[0]?.id || '');
+        }
       });
       setSelectedAnalysisResult(null);
-      setFilterMode("ALL");
-      setTargetValue("");
     }
   }, [selectedId, activeTab]);
 
@@ -264,40 +284,50 @@ export default function AdminPage() {
     let targetName = "組織全体";
     let resultMeta: Partial<AnalysisResult> = {};
 
-    // Filter Logic
+    // Filter Logic (スコープに応じて自動決定)
     if (filterMode === "USER") {
-        const u = allUsers.find(u => u.id === targetValue);
-        targetName = `${u?.name || targetValue} (個人)`;
+        // personal scope: 個人を選択して分析（名前はレポートに出さない）
+        const u = allUsers.find((u: UserProfile) => u.id === targetValue);
+        const deptName = u?.dept || "";
+        const teamName = u?.team || "";
+        targetName = [deptName, teamName].filter(Boolean).join(" ") || "個人分析";
         targetAnswers = targetAnswers.filter(a => a.userId === targetValue);
         resultMeta.targetUserId = targetValue;
+        resultMeta.targetTeam = teamName || undefined;
+        resultMeta.targetDept = deptName || undefined;
     } else if (filterMode === "DEPT") {
-        targetName = `${targetValue} (部署)`;
+        targetName = targetValue;
         targetAnswers = targetAnswers.filter(a => a.dept === targetValue);
         resultMeta.targetDept = targetValue;
     } else if (filterMode === "TEAM") {
-        targetName = `${targetValue} (課)`;
+        const deptOfTeam = allUsers.find((u: UserProfile) => u.team === targetValue)?.dept;
+        targetName = deptOfTeam ? `${deptOfTeam} ${targetValue}` : targetValue;
         targetAnswers = targetAnswers.filter(a => {
-            const u = allUsers.find(u => u.id === a.userId);
-            return u?.team === targetValue;
+            const u = allUsers.find((u: UserProfile) => u.id === a.userId);
+            const ansTeam = u?.team ?? a.team;
+            return ansTeam === targetValue;
         });
         resultMeta.targetTeam = targetValue;
+        resultMeta.targetDept = deptOfTeam;
     }
 
-    // 階級フィルター適用
-    if (positionFilter !== "ALL") {
+    // 階級フィルター適用（チェックされた役職のみ）
+    const allPositionsChecked = selectedPositions.size === ALL_POSITION_KEYS.length;
+    if (!allPositionsChecked) {
         targetAnswers = targetAnswers.filter(a => {
             const user = allUsers.find(u => u.id === a.userId);
-            const level = getPositionLevel(user?.position);
-            if (positionFilter === "MEMBER_ONLY") return level === 1;
-            if (positionFilter === "MANAGER_UP")  return level >= 2;
-            if (positionFilter === "DIRECTOR_UP") return level >= 3;
-            if (positionFilter === "GM_UP")       return level >= 4;
-            if (positionFilter === "EXEC_ONLY")   return level === 5;
-            return true;
+            // allUsersに見つからない場合（削除済み等）は回答時の保存値を使用
+            const position = user?.position ?? a.position;
+            const roleStr = user?.role ?? a.role;
+            const level = getPositionLevel(position, roleStr);
+            return selectedPositions.has(levelToKey(level));
         });
-        const posLabel = POSITION_FILTER_LABELS[positionFilter];
-        if (posLabel) targetName = `${targetName}（${posLabel}）`;
-        resultMeta.positionFilter = positionFilter;
+        const posLabels = ALL_POSITION_KEYS
+            .filter(k => selectedPositions.has(k))
+            .map(k => POSITION_HIERARCHY[k]?.label || k)
+            .join('・');
+        if (posLabels) targetName = `${targetName}（${posLabels}）`;
+        resultMeta.positionFilter = ALL_POSITION_KEYS.filter(k => selectedPositions.has(k)).join(',');
     }
 
     if (targetAnswers.length === 0) {
@@ -342,7 +372,9 @@ export default function AdminPage() {
     if (!selectedAnalysisResult) return;
     const r = selectedAnalysisResult;
     const date = new Date(r.generatedAt).toLocaleString('ja-JP');
-    const posLabel = r.positionFilter ? POSITION_FILTER_LABELS[r.positionFilter as PositionFilterKey] || "" : "";
+    const posLabel = r.positionFilter
+        ? r.positionFilter.split(',').map(k => POSITION_HIERARCHY[k as PositionKey]?.label || k).filter(Boolean).join('・')
+        : "";
 
     const esc = (s: string) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 
@@ -1012,78 +1044,103 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
                             />
                         </div>
 
-                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                            <label className="text-xs font-medium text-emerald-600 uppercase tracking-wider flex items-center gap-1">
-                                <Target className="w-3 h-3" /> 分析対象フィルター
-                            </label>
-                            
-                            <div className="grid grid-cols-2 gap-2">
-                                <button 
-                                    onClick={() => { setFilterMode("ALL"); setTargetValue(""); }}
-                                    className={`text-xs p-2 rounded border text-center ${filterMode === "ALL" ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600'}`}
-                                >全体集計</button>
-                                <button 
-                                    onClick={() => { setFilterMode("DEPT"); setTargetValue(availableDepts[0] || ""); }}
-                                    className={`text-xs p-2 rounded border text-center ${filterMode === "DEPT" ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600'}`}
-                                >部署別</button>
-                                <button 
-                                    onClick={() => { setFilterMode("TEAM"); setTargetValue(availableTeams[0] || ""); }}
-                                    className={`text-xs p-2 rounded border text-center ${filterMode === "TEAM" ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600'}`}
-                                >課別</button>
-                                <button 
-                                    onClick={() => { setFilterMode("USER"); setTargetValue(availableUsers[0]?.id || ""); }}
-                                    className={`text-xs p-2 rounded border text-center ${filterMode === "USER" ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600'}`}
-                                >個人別</button>
-                            </div>
-
-                            {filterMode !== "ALL" && (
-                                <div className="animate-in fade-in slide-in-from-top-1">
+                        {/* 分析対象: スコープに応じて自動表示 */}
+                        {(() => {
+                            const iv = interviews.find((i: Interview) => i.interviewId === selectedId);
+                            if (!iv) return null;
+                            if (iv.scope === 'org') return (
+                                <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 flex items-center gap-2">
+                                    <Target className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span className="text-xs text-emerald-700 font-medium">全社員が分析対象です（階級フィルターで絞り込み可）</span>
+                                </div>
+                            );
+                            if (iv.scope === 'dept') return (
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-medium text-emerald-600 uppercase tracking-wider flex items-center gap-1">
+                                        <Target className="w-3 h-3" /> 対象部門
+                                    </label>
                                     <Select
                                         value={targetValue}
-                                        onChange={(e) => setTargetValue(e.target.value)}
-                                        options={
-                                            filterMode === "USER" ? availableUsers.map(u => ({ value: u.id, label: `${u.name} (${u.id})` })) :
-                                            filterMode === "DEPT" ? availableDepts.map(d => ({ value: d, label: d })) :
-                                            filterMode === "TEAM" ? availableTeams.map(t => ({ value: t, label: t })) :
-                                            []
-                                        }
+                                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTargetValue(e.target.value)}
+                                        options={availableDepts.map(d => ({ value: d, label: d }))}
                                     />
                                 </div>
-                            )}
-                        </div>
+                            );
+                            if (iv.scope === 'team') return (
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-medium text-emerald-600 uppercase tracking-wider flex items-center gap-1">
+                                        <Target className="w-3 h-3" /> 対象課
+                                    </label>
+                                    <Select
+                                        value={targetValue}
+                                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTargetValue(e.target.value)}
+                                        options={availableTeams.map(t => ({ value: t, label: t }))}
+                                    />
+                                </div>
+                            );
+                            // personal scope
+                            return (
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-medium text-emerald-600 uppercase tracking-wider flex items-center gap-1">
+                                        <Target className="w-3 h-3" /> 対象者
+                                    </label>
+                                    <Select
+                                        value={targetValue}
+                                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTargetValue(e.target.value)}
+                                        options={availableUsers.map((u: UserProfile) => ({ value: u.id, label: `${u.name}（${u.team || u.dept || u.id}）` }))}
+                                    />
+                                    <div className="text-[10px] text-slate-400">※ 個人名はレポートに出力されません</div>
+                                </div>
+                            );
+                        })()}
 
-                        {/* 階級フィルター */}
+                        {/* 階級フィルター (チェックあり=分析対象に含む) */}
                         <div className="p-3 bg-purple-50 rounded-xl border border-purple-100 space-y-2">
-                            <label className="text-xs font-medium text-purple-700 uppercase tracking-wider flex items-center gap-1">
-                                <Users className="w-3 h-3" /> 階級フィルター
-                            </label>
+                            <div className="flex items-center justify-between">
+                                <label className="text-xs font-medium text-purple-700 uppercase tracking-wider flex items-center gap-1">
+                                    <Users className="w-3 h-3" /> 階級フィルター
+                                </label>
+                                <button
+                                    onClick={() => setSelectedPositions(new Set(ALL_POSITION_KEYS))}
+                                    className="text-[10px] text-purple-500 hover:text-purple-700 underline"
+                                >全選択</button>
+                            </div>
                             <div className="space-y-1.5">
-                                {POSITION_FILTERS.map(pf => (
-                                    <label key={pf.value} className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                                {POSITION_OPTIONS.map(po => (
+                                    <label key={po.value} className="flex items-center gap-2 text-xs cursor-pointer select-none">
                                         <input
-                                            type="radio"
-                                            name="positionFilter"
-                                            value={pf.value}
-                                            checked={positionFilter === pf.value}
-                                            onChange={() => setPositionFilter(pf.value)}
+                                            type="checkbox"
+                                            checked={selectedPositions.has(po.value as PositionKey)}
+                                            onChange={() => {
+                                                const next = new Set(selectedPositions);
+                                                if (next.has(po.value as PositionKey)) {
+                                                    next.delete(po.value as PositionKey);
+                                                } else {
+                                                    next.add(po.value as PositionKey);
+                                                }
+                                                setSelectedPositions(next);
+                                            }}
                                             className="accent-purple-600"
                                         />
-                                        <span className={positionFilter === pf.value ? "font-bold text-purple-700" : "text-slate-600"}>
-                                            {pf.label}
+                                        <span className={selectedPositions.has(po.value as PositionKey) ? "font-bold text-purple-700" : "text-slate-400 line-through"}>
+                                            {po.label}
                                         </span>
                                     </label>
                                 ))}
                             </div>
+                            <div className="text-[10px] text-purple-400">※ チェックした役職の回答を分析対象とします。「課長代理」等は課長として集計します。</div>
                         </div>
 
                         <div className="bg-white border border-slate-100 rounded-lg p-3 text-center">
                              <div className="text-xs text-slate-500 mb-1">対象回答数</div>
                              <div className="text-xl font-bold text-slate-800">
                                 {(() => {
-                                  // 常にlocalStorageから直接カウント（stateのズレを防ぐ）
                                   const base = db.getAnswers(selectedId);
                                   if (filterMode === "ALL") return base.length;
-                                  if (filterMode === "USER") return base.filter(a => a.userId === targetValue).length;
+                                  if (filterMode === "USER") {
+                                    const selectedUser = allUsers.find((u: UserProfile) => u.id === targetValue);
+                                    return base.filter(a => allUsers.find((u: UserProfile) => u.id === a.userId)?.team === selectedUser?.team).length;
+                                  }
                                   if (filterMode === "DEPT") return base.filter(a => a.dept === targetValue).length;
                                   return base.filter(a => allUsers.find((u: UserProfile) => u.id === a.userId)?.team === targetValue).length;
                                 })()}
@@ -1139,8 +1196,12 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
                                     <h3 className="text-xl font-bold text-slate-800">{selectedAnalysisResult.title}</h3>
                                     <div className="flex flex-wrap gap-2 mt-2">
                                         <Badge color="default">対象: {selectedAnalysisResult.targetName}</Badge>
-                                        {selectedAnalysisResult.positionFilter && selectedAnalysisResult.positionFilter !== "ALL" && (
-                                            <Badge color="warning">{POSITION_FILTER_LABELS[selectedAnalysisResult.positionFilter as PositionFilterKey] || selectedAnalysisResult.positionFilter}</Badge>
+                                        {selectedAnalysisResult.positionFilter && (
+                                            <Badge color="warning">
+                                                {selectedAnalysisResult.positionFilter.split(',')
+                                                    .map(k => POSITION_HIERARCHY[k as PositionKey]?.label || k)
+                                                    .filter(Boolean).join('・')}
+                                            </Badge>
                                         )}
                                         <Badge color="default">集計: {selectedAnalysisResult.respondentCount}名</Badge>
                                         <Badge color="success">{selectedAnalysisResult.scope}</Badge>

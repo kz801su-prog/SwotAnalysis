@@ -62,7 +62,9 @@ export interface Answer {
   userId: string;
   name: string;
   dept: string;
+  team?: string;           // 回答時の所属課（役職フィルタの整合性確保）
   role: string;
+  position?: PositionKey;  // 回答時の役職（メタ分析フィルタ用。allUsersが変化しても追跡可能）
   answeredAt: string;
   responses: AnswerResponse[];
 }

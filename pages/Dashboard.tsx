@@ -134,7 +134,9 @@ export default function Dashboard({ user }: DashboardProps) {
             userId: user.id,
             name: user.name,
             dept: user.dept || "Unassigned",
+            team: user.team,
             role: user.role || "一般",
+            position: user.position,          // 回答時の役職を保存（後から役職フィルタで正確に判定）
             answeredAt: new Date().toISOString(),
             responses: Object.entries(responses)
                 .filter(([_, text]) => (text as string).trim() !== "")

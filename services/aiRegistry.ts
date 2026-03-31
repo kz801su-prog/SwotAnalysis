@@ -143,18 +143,19 @@ const geminiProvider = {
 2. 分析スコープ: ${scopeBriefs[args.interview.scope] || args.interview.scope}
 3. 回答数: ${args.answers.length}名
 
-【回答データ】
-${JSON.stringify(args.answers.map(a => ({ user: a.name, responses: a.responses })))}
+【回答データ（匿名）】
+${JSON.stringify(args.answers.map((a, idx) => ({ respondent: `回答者${idx + 1}`, responses: a.responses })))}
 
 【レポート作成ルール】
 1. S/W/O/Tの各項目につき、データから洞察される本質的なポイントを抽出すること。
 2. item: 端的な見出し（20文字以内）。
 3. score: データの確実性や重要度に基づき重み付け。
-4. reason: なぜその結論に至ったか、回答の根拠を提示。
+4. reason: なぜその結論に至ったか、回答の根拠を提示（個人を特定できる情報は含めないこと）。
 5. reconfirm: 暗黙の了解や、更なる事実確認が必要な曖昧な点。
 6. action: 対象スコープに応じた具体的で実行可能な「戦略的行動」。弱みに対しては、現実的かつ厳しい忠告を含めること。
-7. detail: 背景心理や戦略的価値、長期予見。数百文字程度のプロ品質の深い考察を記述。
+7. detail: 背景心理や戦略的価値、長期予見。数百文字程度のプロ品質の深い考察を記述（個人名・個人特定情報は使用不可）。
 8. notes: レポート全体の総括的な「核心を突く」一言アドバイス。
+9. 【重要】個人名・個人を特定できる情報は絶対に使用しないこと。これはメタ分析であり、集団の傾向として記述すること。
 
 必ず以下のJSON形式（オブジェクトのみ含む）のみを出力してください。
 {"swot":{"S":[{"item":"...","score":91,"reason":"...","reconfirm":"...","action":"...","detail":"..."}],"W":[],"O":[],"T":[]},"notes":["..."]}`;
