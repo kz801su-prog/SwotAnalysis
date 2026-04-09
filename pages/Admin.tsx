@@ -139,6 +139,11 @@ export default function AdminPage() {
   const [settings, setSettings] = useState(db.settingsDb.get());
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // Non-submitter / Cliq State
+  const [nonSubmitInterviewId, setNonSubmitInterviewId] = useState("");
+  const [checkedNonSubmitters, setCheckedNonSubmitters] = useState<Set<string>>(new Set());
+  const [isSendingCliq, setIsSendingCliq] = useState(false);
+
   useEffect(() => {
     const init = async () => {
       // まずSQLから最新データを取得してからUIを更新する
@@ -431,6 +436,91 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
     a.download = `SWOT_${r.title}_${r.targetName}_${r.generatedAt.slice(0,10)}.html`.replace(/[\\/:*?"<>|]/g, "_");
     a.click();
     URL.revokeObjectURL(a.href);
+  };
+
+  const handleDownloadText = () => {
+    if (!selectedAnalysisResult) return;
+    const r = selectedAnalysisResult;
+    const date = new Date(r.generatedAt).toLocaleString('ja-JP');
+    const posLabel = r.positionFilter
+      ? r.positionFilter.split(',').map(k => POSITION_HIERARCHY[k as PositionKey]?.label || k).filter(Boolean).join('・')
+      : "";
+
+    const renderItems = (items: SWOTItem[]) =>
+      items.length === 0
+        ? "  （データなし）"
+        : items.map((item, i) => [
+            `  ${i + 1}. ${item.item}（スコア: ${item.score}）`,
+            `     理由: ${item.reason}`,
+            item.action    ? `     → ${item.action}` : null,
+            item.reconfirm ? `     要確認: ${item.reconfirm}` : null,
+          ].filter(Boolean).join('\n')).join('\n');
+
+    const lines: (string | null)[] = [
+      "SWOT分析レポート",
+      "=".repeat(50),
+      `アンケート: ${r.title}`,
+      `対象: ${r.targetName}`,
+      `スコープ: ${r.scope}`,
+      posLabel ? `階級フィルター: ${posLabel}` : null,
+      `回答数: ${r.respondentCount}名`,
+      `生成日時: ${date}`,
+      "",
+      "■ STRENGTH（強み）",
+      renderItems(r.swot?.S || []),
+      "",
+      "■ WEAKNESS（弱み）",
+      renderItems(r.swot?.W || []),
+      "",
+      "■ OPPORTUNITY（機会）",
+      renderItems(r.swot?.O || []),
+      "",
+      "■ THREAT（脅威）",
+      renderItems(r.swot?.T || []),
+      "",
+      "■ AI考察メモ",
+      ...(r.notes || []).map((n, i) => `  ${i + 1}. ${n}`),
+    ];
+
+    const text = lines.filter(l => l !== null).join('\n');
+    const bom = '\uFEFF'; // UTF-8 BOM（Windows メモ帳・Excelで文字化けしない）
+    const blob = new Blob([bom + text], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `SWOT_${r.title}_${r.targetName}_${r.generatedAt.slice(0, 10)}.txt`.replace(/[\\/:*?"<>|]/g, "_");
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const handleSendCliqReminder = async () => {
+    const { cliqWebhookUrl } = settings;
+    if (!cliqWebhookUrl?.trim()) {
+      alert("Cliq Webhook URLを設定してください（MySQL連携タブ > Cliq設定）。");
+      return;
+    }
+    if (checkedNonSubmitters.size === 0) {
+      alert("催促するユーザーにチェックを入れてください。");
+      return;
+    }
+    const interview = interviews.find(i => i.interviewId === nonSubmitInterviewId);
+    const names = Array.from(checkedNonSubmitters)
+      .map(id => allUsers.find(u => u.id === id)?.name || id)
+      .join('、');
+    const message = `【アンケート未提出のご案内】\n「${interview?.tag || nonSubmitInterviewId}」の回答をまだご提出いただいていません。\n\n未提出の方：${names}\n\nご提出をよろしくお願いいたします。`;
+    setIsSendingCliq(true);
+    try {
+      await fetch(cliqWebhookUrl.trim(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: message }),
+      });
+      alert("Cliqに催促メッセージを送信しました。");
+      setCheckedNonSubmitters(new Set());
+    } catch (e: any) {
+      alert(`Cliq送信に失敗しました: ${e.message}`);
+    } finally {
+      setIsSendingCliq(false);
+    }
   };
 
   const handleDeleteUser = (id: string) => {
@@ -1019,6 +1109,24 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
                   </div>
               </Card>
 
+              <Card title="Zoho Cliq 連携設定" sub="未提出者への催促メッセージをCliqチャンネルへ送信します">
+                  <div className="space-y-4">
+                      <div className="space-y-2">
+                          <label className="text-xs font-bold text-slate-500 uppercase">Incoming Webhook URL</label>
+                          <Input
+                              placeholder="https://cliq.zoho.jp/api/v2/channelsbyname/..."
+                              value={settings.cliqWebhookUrl || ""}
+                              onChange={e => setSettings({ ...settings, cliqWebhookUrl: e.target.value.trim() })}
+                          />
+                          <p className="text-[10px] text-slate-400">
+                            ※ Zoho Cliq の対象チャンネル設定 &gt; Incoming Webhooks で発行したURLを入力してください。<br/>
+                            ※ 設定後「設定を保存」を押してください。催促は「回答一覧」タブから送信できます。
+                          </p>
+                      </div>
+                      <Button onClick={handleSaveSettings} variant="primary" className="w-full">Cliq設定を保存</Button>
+                  </div>
+              </Card>
+
               <Card title="設定手順 (管理者用)" sub="MySQLとの接続設定方法">
                   <div className="space-y-4 text-sm text-slate-600">
                       <p>1. エックスサーバーの管理画面で MySQL データベースを作成します。</p>
@@ -1220,6 +1328,14 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
                                             {viewMode === "detail" ? "一覧表示" : "詳細表示"}
                                         </button>
                                         <button
+                                            onClick={handleDownloadText}
+                                            className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center gap-1 transition-colors"
+                                            title="UTF-8 BOM付きテキストファイル（文字化けなし）"
+                                        >
+                                            <FileText className="w-3.5 h-3.5" />
+                                            テキスト
+                                        </button>
+                                        <button
                                             onClick={handleDownloadReport}
                                             className="text-xs px-3 py-1.5 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 flex items-center gap-1 transition-colors"
                                         >
@@ -1285,6 +1401,127 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
 
       {activeTab === 'answers' && (
         <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+
+          {/* 未提出者確認 & Cliq催促 */}
+          <Card title="未提出者確認・Cliq催促" sub="アンケートを選択して未提出の方を確認し、Cliqで催促できます">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">対象アンケート</label>
+                <select
+                  value={nonSubmitInterviewId}
+                  onChange={e => { setNonSubmitInterviewId(e.target.value); setCheckedNonSubmitters(new Set()); }}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                >
+                  <option value="">-- アンケートを選択 --</option>
+                  {interviews.map(iv => (
+                    <option key={iv.interviewId} value={iv.interviewId}>{iv.tag} ({iv.scope})</option>
+                  ))}
+                </select>
+              </div>
+
+              {nonSubmitInterviewId && (() => {
+                const submitted = new Set(db.getAnswers(nonSubmitInterviewId).map(a => String(a.userId)));
+                const nonSubmitters = allUsers.filter(u => !submitted.has(String(u.id)));
+                return (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-semibold text-slate-700">
+                        未提出者：
+                        <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold ${nonSubmitters.length > 0 ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                          {nonSubmitters.length}名
+                        </span>
+                        <span className="ml-3 text-xs text-slate-400 font-normal">（全{allUsers.length}名中 {submitted.size}名提出済み）</span>
+                      </div>
+                      {nonSubmitters.length > 0 && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setCheckedNonSubmitters(new Set(nonSubmitters.map(u => u.id)))}
+                            className="text-xs px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50"
+                          >全選択</button>
+                          <button
+                            onClick={() => setCheckedNonSubmitters(new Set())}
+                            className="text-xs px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50"
+                          >全解除</button>
+                        </div>
+                      )}
+                    </div>
+
+                    {nonSubmitters.length === 0 ? (
+                      <div className="text-sm text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg px-4 py-3">
+                        全員が提出済みです。
+                      </div>
+                    ) : (
+                      <div className="border border-slate-200 rounded-lg overflow-hidden max-h-[300px] overflow-y-auto">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider">
+                              <th className="p-3 sticky top-0 bg-slate-50 w-10">
+                                <input
+                                  type="checkbox"
+                                  checked={checkedNonSubmitters.size === nonSubmitters.length}
+                                  onChange={e => setCheckedNonSubmitters(e.target.checked ? new Set(nonSubmitters.map(u => u.id)) : new Set())}
+                                  className="accent-emerald-600"
+                                />
+                              </th>
+                              <th className="p-3 sticky top-0 bg-slate-50">ID</th>
+                              <th className="p-3 sticky top-0 bg-slate-50">氏名</th>
+                              <th className="p-3 sticky top-0 bg-slate-50">部署</th>
+                              <th className="p-3 sticky top-0 bg-slate-50">課</th>
+                              <th className="p-3 sticky top-0 bg-slate-50">役職</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {nonSubmitters.map(u => (
+                              <tr
+                                key={u.id}
+                                className={`border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors ${checkedNonSubmitters.has(u.id) ? 'bg-amber-50' : ''}`}
+                                onClick={() => {
+                                  const next = new Set(checkedNonSubmitters);
+                                  if (next.has(u.id)) next.delete(u.id); else next.add(u.id);
+                                  setCheckedNonSubmitters(next);
+                                }}
+                              >
+                                <td className="p-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={checkedNonSubmitters.has(u.id)}
+                                    onChange={() => {}}
+                                    className="accent-emerald-600 pointer-events-none"
+                                  />
+                                </td>
+                                <td className="p-3 font-mono text-slate-600">{u.id}</td>
+                                <td className="p-3 font-semibold text-slate-800">{u.name}</td>
+                                <td className="p-3 text-slate-500">{u.dept || '—'}</td>
+                                <td className="p-3 text-slate-500">{u.team || '—'}</td>
+                                <td className="p-3 text-slate-500">{u.position ? POSITION_HIERARCHY[u.position]?.label : '一般社員'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {checkedNonSubmitters.size > 0 && (
+                      <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        <span className="text-sm text-amber-800 flex-1">
+                          {checkedNonSubmitters.size}名を選択中
+                        </span>
+                        <Button
+                          onClick={handleSendCliqReminder}
+                          isLoading={isSendingCliq}
+                          variant="primary"
+                          className="bg-amber-500 hover:bg-amber-600 border-amber-500 shadow-amber-200/50"
+                        >
+                          Cliqで催促する
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          </Card>
+
           <Card title="全回答一覧" sub={`${sortedAnswers.length} 件`}>
             <div className="flex flex-wrap gap-2 mb-4">
               <span className="text-xs text-slate-400 self-center">ソート：</span>

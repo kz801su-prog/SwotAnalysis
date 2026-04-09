@@ -20,6 +20,7 @@ export interface SystemSettings {
   autoSync: boolean;
   geminiModel: string; // e.g. "gemini-2.5-flash"
   geminiApiKey: string;
+  cliqWebhookUrl: string; // Zoho Cliq Incoming Webhook URL
 }
 
 export const db = {
@@ -51,7 +52,7 @@ export const db = {
     const data = localStorage.getItem(STORAGE_KEYS.ANSWERS);
     const allAnswers: Answer[] = data ? JSON.parse(data) : [];
     if (interviewId) {
-      return allAnswers.filter((a) => a.interviewId === interviewId);
+      return allAnswers.filter((a) => String(a.interviewId) === String(interviewId));
     }
     return allAnswers;
   },
@@ -187,7 +188,8 @@ export const db = {
         gasUrl: "https://kz801xs.xsrv.jp/vitsw/api.php",
         autoSync: true,
         geminiModel: "gemini-2.5-flash",
-        geminiApiKey: ""
+        geminiApiKey: "",
+        cliqWebhookUrl: ""
       };
       const data = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       if (!data) return defaults;
