@@ -251,11 +251,11 @@ export default function ManagerPage({
   }, [visibleAnalyses]);
 
   const accessLevel = getPositionLevel(user.position);
-  if (accessLevel < 3 && !user.isAdmin) {
+  if (accessLevel < 2 && !user.isAdmin) {
     return (
       <Card title="権限エラー" sub="このページにアクセスする権限がありません。">
         <div className="text-sm text-slate-600">
-          部長以上の役職でログインしてください。
+          課長以上の役職でログインしてください。
         </div>
       </Card>
     );
