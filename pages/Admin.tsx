@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Card, Button, Select, Input, Badge, Modal } from "../components/UI";
 import { db, AllowedUser } from "../services/storage";
 import { aiRegistry, providers } from "../services/aiRegistry";
+import { downloadPersonalSwotReport } from "../services/personalReport";
 import {
   Interview,
   AnalysisResult,
@@ -9,6 +10,7 @@ import {
   InterviewScope,
   ProviderId,
   UserProfile,
+  Answer,
   POSITION_OPTIONS,
   POSITION_HIERARCHY,
   PositionKey,
@@ -234,6 +236,12 @@ export default function AdminPage({
   const [viewMode, setViewMode] = useState<"detail" | "summary">("detail");
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [answerReportLoadingId, setAnswerReportLoadingId] = useState<
+    string | null
+  >(null);
+  const [answerScopeFilter, setAnswerScopeFilter] = useState<
+    "all" | "personal" | "org"
+  >("all");
   const [preview, setPreview] = useState<Interview | null>(null);
 
   // User Management State
@@ -518,6 +526,46 @@ export default function AdminPage({
       alert(`分析に失敗しました: ${e.message}`);
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  const handleDownloadPersonalAnswerReport = async (ans: Answer) => {
+    const iv = interviews.find((i) => i.interviewId === ans.interviewId);
+    if (!iv) {
+      alert("アンケート情報が見つかりませんでした。");
+      return;
+    }
+    setAnswerReportLoadingId(ans.answerId);
+    try {
+      let analysis = db
+        .getAnalyses(ans.interviewId)
+        .find((a) => a.targetUserId === ans.userId);
+
+      if (!analysis) {
+        const result = await aiRegistry.analyze(
+          iv.analysisAI,
+          iv,
+          [ans],
+          iv.tag,
+          ans.name,
+        );
+        analysis = {
+          ...result,
+          title: iv.tag,
+          targetName: ans.name,
+          targetUserId: ans.userId,
+          targetDept: ans.dept,
+          targetTeam: ans.team,
+          respondentCount: 1,
+        };
+        db.saveAnalysis(analysis);
+      }
+      downloadPersonalSwotReport(analysis, ans, iv);
+    } catch (e: any) {
+      console.error(e);
+      alert(`個人SWOTレポートの生成に失敗しました: ${e.message}`);
+    } finally {
+      setAnswerReportLoadingId(null);
     }
   };
 
@@ -867,7 +915,7 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
   const allAnalyses = db.getAnalyses(); // Get all
 
   // Answers Tab: ソート済み回答一覧
-  const sortedAnswers = [...allAnswers].sort((a, b) => {
+  const allSortedAnswers = [...allAnswers].sort((a, b) => {
     let aVal = "";
     let bVal = "";
     if (answerSortKey === "userId") {
@@ -892,6 +940,16 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
     }
     const cmp = (aVal ?? "").localeCompare(bVal ?? "", "ja");
     return answerSortDir === "asc" ? cmp : -cmp;
+  });
+
+  // Apply scope filter
+  const sortedAnswers = allSortedAnswers.filter((ans) => {
+    const scope =
+      ans.scope ||
+      interviews.find((i) => i.interviewId === ans.interviewId)?.scope;
+    if (answerScopeFilter === "personal") return scope === "personal";
+    if (answerScopeFilter === "org") return scope !== "personal";
+    return true; // all
   });
   // ソートボタン描画ヘルパー（コンポーネントではなく通常関数）
   const renderSortBtn = (col: typeof answerSortKey, label: string) => (
@@ -2363,15 +2421,66 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
           </Card>
 
           <Card title="全回答一覧" sub={`${sortedAnswers.length} 件`}>
-            <div className="flex flex-wrap gap-2 mb-4">
-              <span className="text-xs text-slate-400 self-center">
-                ソート：
-              </span>
-              {renderSortBtn("userId", "個人ID")}
-              {renderSortBtn("team", "課")}
-              {renderSortBtn("dept", "部")}
-              {renderSortBtn("answeredAt", "回答日付")}
-              {renderSortBtn("surveyCreatedAt", "アンケート作成日")}
+            <div className="flex flex-wrap gap-3 mb-4 items-center">
+              <div className="flex gap-2">
+                <span className="text-xs text-slate-400 self-center font-medium">
+                  スコープ:
+                </span>
+                <Button
+                  variant={answerScopeFilter === "all" ? "primary" : "ghost"}
+                  onClick={() => setAnswerScopeFilter("all")}
+                  className="text-xs px-3 py-1 h-auto"
+                >
+                  すべて ({allSortedAnswers.length})
+                </Button>
+                <Button
+                  variant={
+                    answerScopeFilter === "personal" ? "primary" : "ghost"
+                  }
+                  onClick={() => setAnswerScopeFilter("personal")}
+                  className="text-xs px-3 py-1 h-auto"
+                >
+                  個人 (
+                  {
+                    allSortedAnswers.filter(
+                      (a) =>
+                        (a.scope ||
+                          interviews.find(
+                            (i) => i.interviewId === a.interviewId,
+                          )?.scope) === "personal",
+                    ).length
+                  }
+                  )
+                </Button>
+                <Button
+                  variant={answerScopeFilter === "org" ? "primary" : "ghost"}
+                  onClick={() => setAnswerScopeFilter("org")}
+                  className="text-xs px-3 py-1 h-auto"
+                >
+                  組織 (
+                  {
+                    allSortedAnswers.filter(
+                      (a) =>
+                        (a.scope ||
+                          interviews.find(
+                            (i) => i.interviewId === a.interviewId,
+                          )?.scope) !== "personal",
+                    ).length
+                  }
+                  )
+                </Button>
+              </div>
+              <div className="flex-1"></div>
+              <div className="flex gap-2 flex-wrap">
+                <span className="text-xs text-slate-400 self-center">
+                  ソート:
+                </span>
+                {renderSortBtn("userId", "個人ID")}
+                {renderSortBtn("team", "課")}
+                {renderSortBtn("dept", "部")}
+                {renderSortBtn("answeredAt", "回答日付")}
+                {renderSortBtn("surveyCreatedAt", "アンケート作成日")}
+              </div>
             </div>
 
             {sortedAnswers.length === 0 && (
@@ -2501,6 +2610,20 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
                             </div>
                           );
                         })}
+                        {ans.scope === "personal" && iv && (
+                          <div className="pt-3 border-t border-slate-200 flex justify-end">
+                            <Button
+                              variant="secondary"
+                              onClick={() =>
+                                handleDownloadPersonalAnswerReport(ans)
+                              }
+                              isLoading={answerReportLoadingId === ans.answerId}
+                              className="text-xs px-3 py-2"
+                            >
+                              個人SWOTレポートを出力
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

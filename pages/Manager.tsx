@@ -10,7 +10,7 @@ import {
   POSITION_HIERARCHY,
   POSITION_OPTIONS,
 } from "../types";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Printer } from "lucide-react";
 
 const getPositionLevel = (position?: string): number => {
   const levels: Record<string, number> = {
@@ -250,6 +250,71 @@ export default function ManagerPage({
     };
   }, [visibleAnalyses]);
 
+  const handlePrintReport = () => {
+    if (!selectedAnalysis) return;
+
+    const esc = (s?: string) =>
+      String(s || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+    const renderSection = (
+      axis: "S" | "W" | "O" | "T",
+      title: string,
+      color: string,
+    ) => {
+      const items = selectedAnalysis.swot[axis] || [];
+      const rows = items
+        .map(
+          (item, idx) => `
+            <tr>
+              <td style="width:26px;color:${color};font-weight:700;vertical-align:top">${idx + 1}</td>
+              <td style="padding:4px 8px;vertical-align:top"><strong>${esc(item.item)}</strong><br/><span style="font-size:12px;color:#555">${esc(item.reason)}</span>${item.action ? `<div style="margin-top:6px;color:#1f5d3a;font-size:12px">→ ${esc(item.action)}</div>` : ""}${item.reconfirm ? `<div style="margin-top:4px;color:#924444;font-size:12px">要確認: ${esc(item.reconfirm)}</div>` : ""}</td>
+            </tr>`,
+        )
+        .join("");
+      return `
+        <div style="break-inside:avoid;margin-bottom:22px">
+          <div style="background:${color};color:#fff;padding:10px 14px;border-radius:8px 8px 0 0;font-weight:700">${esc(title)}</div>
+          <div style="border:1px solid #e2e2e2;border-top:0;border-radius:0 0 8px 8px;padding:12px;">
+            ${rows || '<div style="color:#888;font-size:13px;">データなし</div>'}
+          </div>
+        </div>`;
+    };
+
+    const compareSection = compareHistory
+      ? `
+        <div style="margin-bottom:22px;padding:16px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;">
+          <div style="font-weight:700;margin-bottom:10px;font-size:15px;">年度変化サマリー</div>
+          <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;">
+            ${Object.entries(compareHistory.delta)
+              .map(([axis, diff]) => {
+                const value = Number(diff || 0);
+                return `
+                  <div style="background:#fff;padding:12px;border:1px solid #e2e8f0;border-radius:8px;">
+                    <div style="font-size:11px;color:#64748b;letter-spacing:.08em;text-transform:uppercase;">${axis}</div>
+                    <div style="margin-top:8px;font-size:20px;font-weight:700;">${value > 0 ? `+${value}` : value < 0 ? value : "±0"}</div>
+                  </div>`;
+              })
+              .join("")}
+          </div>
+          <div style="margin-top:12px;font-size:13px;color:#475569;">最新2回の比較結果です。</div>
+        </div>`
+      : "";
+
+    const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>SWOT報告 - ${esc(selectedAnalysis.title)}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#1f2937;margin:24px}h1{font-size:24px;color:#0f172a;margin-bottom:12px}h2{font-size:16px;color:#0f172a;margin-top:24px;margin-bottom:10px}p{margin:0 0 10px;line-height:1.6}table{width:100%;border-collapse:collapse}td{vertical-align:top} .meta{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px;font-size:13px;color:#475569}.chip{background:#f1f5f9;color:#334155;padding:6px 10px;border-radius:999px;font-size:12px;display:inline-block} @media print{body{margin:8mm} .no-print{display:none}}</style></head><body><div class="no-print" style="margin-bottom:18px"><button onclick="window.print()" style="padding:10px 14px;background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px">印刷する</button></div><h1>SWOT分析レポート</h1><div class="meta"><span class="chip">対象: ${esc(selectedTarget || deptTarget)}</span><span class="chip">スコープ: ${esc(selectedScope === "dept" ? "部" : "課")}</span><span class="chip">生成: ${esc(new Date(selectedAnalysis.generatedAt).toLocaleString("ja-JP"))}</span><span class="chip">回答数: ${selectedAnalysis.respondentCount}名</span></div>${compareSection}<h2>SWOT詳細</h2>${renderSection("S", "STRENGTH（強み）", "#2563eb")}${renderSection("W", "WEAKNESS（弱み）", "#dc2626")}${renderSection("O", "OPPORTUNITY（機会）", "#16a34a")}${renderSection("T", "THREAT（脅威）", "#d97706")}${selectedAnalysis.notes && selectedAnalysis.notes.length ? `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;background:#f8fafc;margin-top:24px"><div style="font-weight:700;margin-bottom:8px">AI 考察メモ</div><ul style="padding-left:18px;margin:0">${selectedAnalysis.notes.map((note) => `<li style="margin-bottom:8px;color:#334155">${esc(note)}</li>`).join("")}</ul></div>` : ""}</body></html>`;
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("ポップアップブロックを解除してから再度お試しください。");
+      return;
+    }
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+  };
+
   const accessLevel = getPositionLevel(user.position);
   if (accessLevel < 3 && !user.isAdmin) {
     return (
@@ -476,6 +541,18 @@ export default function ManagerPage({
             title="SWOT詳細"
             sub={`対象: ${selectedScope === "dept" ? "部" : "課"} ${selectedTarget}`}
           >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-slate-600">
+                本レポートは弱みの消し込みを重視した分析傾向を持ち、改善アクションを優先しています。
+              </div>
+              <Button
+                variant="secondary"
+                onClick={handlePrintReport}
+                className="w-full sm:w-auto"
+              >
+                <Printer className="w-4 h-4 mr-2" /> 印刷レポート
+              </Button>
+            </div>
             <div className="space-y-4">
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800">
                 本レポートは弱みの消し込みを重視した分析傾向を持ち、改善アクションを優先しています。

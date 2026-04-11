@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Card, Button, Input, Badge, Modal } from "../components/UI";
 import { db } from "../services/storage";
+import { aiRegistry } from "../services/aiRegistry";
+import { downloadPersonalSwotReport } from "../services/personalReport";
 import { Interview, Answer, UserProfile, AnalysisResult, POSITION_HIERARCHY } from "../types";
 import { Send, User, Target, Grid, AlertTriangle, Briefcase, UserCircle, Settings, Lock, CheckCircle2, RefreshCw } from "lucide-react";
 
@@ -145,7 +147,37 @@ export default function Dashboard({ user }: DashboardProps) {
 
         db.saveAnswer(answer);
         setAnswers(db.getAnswers()); // Refresh local answers
-        alert("回答を保存しました。");
+
+        if (selectedInterview.scope === "personal") {
+            try {
+                const analysisResult = await aiRegistry.analyze(
+                    selectedInterview.analysisAI,
+                    selectedInterview,
+                    [answer],
+                    selectedInterview.tag,
+                    user.name,
+                );
+                const personalAnalysis: AnalysisResult = {
+                    ...analysisResult,
+                    targetUserId: user.id,
+                    targetDept: user.dept,
+                    targetTeam: user.team,
+                    title: selectedInterview.tag,
+                    targetName: user.name,
+                    respondentCount: 1,
+                };
+                db.saveAnalysis(personalAnalysis);
+                setCurrentAnalysis(personalAnalysis);
+                setShowMatrix(true);
+                downloadPersonalSwotReport(personalAnalysis, answer, selectedInterview);
+            } catch (e: any) {
+                console.error(e);
+                alert(`回答は保存されましたが、個人SWOT分析の生成に失敗しました: ${e.message}`);
+            }
+        } else {
+            alert("回答を保存しました。");
+        }
+
         setSelectedInterview(null);
         setResponses({});
         setIsSubmitting(false);
@@ -199,13 +231,50 @@ export default function Dashboard({ user }: DashboardProps) {
                                     <Grid className="w-5 h-5" />
                                 </Button>
                             </div>
+                            {isPersonal && isFullyAnswered && userAnswer && (
+                                <Button
+                                    variant="secondary"
+                                    onClick={async () => {
+                                        try {
+                                            let analysis = db.getAnalyses(iv.interviewId)
+                                                .find((a) => a.targetUserId === user.id);
+                                            if (!analysis) {
+                                                const result = await aiRegistry.analyze(
+                                                    iv.analysisAI,
+                                                    iv,
+                                                    [userAnswer],
+                                                    iv.tag,
+                                                    user.name,
+                                                );
+                                                analysis = {
+                                                    ...result,
+                                                    title: iv.tag,
+                                                    targetName: user.name,
+                                                    targetUserId: user.id,
+                                                    targetDept: user.dept,
+                                                    targetTeam: user.team,
+                                                    respondentCount: 1,
+                                                };
+                                                db.saveAnalysis(analysis);
+                                            }
+                                            downloadPersonalSwotReport(analysis, userAnswer, iv);
+                                        } catch (e: any) {
+                                            console.error(e);
+                                            alert(`レポート生成に失敗しました: ${e.message}`);
+                                        }
+                                    }}
+                                    className="w-full text-xs h-8"
+                                >
+                                    📄 SWOTレポートをダウンロード
+                                </Button>
+                            )}
                             {isPersonal && (
                                 <Button
                                     variant="ghost"
                                     onClick={() => viewResults(iv.interviewId)}
                                     className="w-full text-xs h-8 border-slate-200 text-slate-600 hover:text-emerald-600"
                                 >
-                                    貴方の回答のSWOT分析
+                                    結果を確認
                                 </Button>
                             )}
                         </div>
@@ -431,6 +500,26 @@ export default function Dashboard({ user }: DashboardProps) {
                                 <div className="text-red-600 text-xs">潜在的な弱み（Weakness）が検出されています。組織的な対応が必要です。</div>
                             </div>
                         </div>
+                        {currentAnalysis?.targetUserId === user.id && (
+                            <div className="flex flex-wrap gap-3">
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => {
+                                        const personalAnswer = answers.find(
+                                            (ans) => ans.interviewId === currentAnalysis.interviewId && ans.userId === currentAnalysis.targetUserId,
+                                        );
+                                        const interview = interviews.find((iv) => iv.interviewId === currentAnalysis.interviewId);
+                                        if (personalAnswer && interview) {
+                                            downloadPersonalSwotReport(currentAnalysis, personalAnswer, interview);
+                                        } else {
+                                            alert("レポート出力に必要な回答データが見つかりませんでした。");
+                                        }
+                                    }}
+                                >
+                                    個人SWOTレポートをダウンロード
+                                </Button>
+                            </div>
+                        )}
                     </div>
                 ) : <p className="text-slate-500">データがありません。</p>}
             </Modal>
