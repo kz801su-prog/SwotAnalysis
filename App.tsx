@@ -118,7 +118,7 @@ function TopNav({
 }) {
   const isAdmin =
     !!user.isAdmin || user.role === "ADMIN" || String(user.id) === "692";
-  const canViewManager = isAdmin || getPositionLevel(user.position) >= 2; // 課長以上
+  const canViewManager = isAdmin || getPositionLevel(user.position) >= 3; // 部長以上
   const canViewDirector = isAdmin || getPositionLevel(user.position) >= 4; // 本部長・取締役以上
 
   return (
@@ -175,8 +175,8 @@ export default function App() {
   }
 
   const isAdmin = String(user?.id) === "692" || !!user?.isAdmin;
-  const canViewManager = isAdmin || getPositionLevel(user.position) >= 2; // 課長（manager）以上
-  const canViewDirector = isAdmin || getPositionLevel(user.position) >= 4; // 本部長（general_manager）・取締役（executive）以上
+  const canViewManager = isAdmin || getPositionLevel(user.position) >= 3; // 部長以上
+  const canViewDirector = isAdmin || getPositionLevel(user.position) >= 4; // 本部長・取締役以上
 
   return (
     <HashRouter>
