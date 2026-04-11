@@ -1,0 +1,10 @@
+# Query: gemini-1.5
+# ContextLines: 1
+
+2 件の結果 - 1 ファイル
+
+pages\Admin.tsx:
+  804                            <Input 
+  805:                               placeholder="gemini-2.5-flash" 
+  806:                               value={settings.geminiModel || "gemini-1.5-flash"}
+  807                                onChange={e => setSettings({...settings, geminiModel: e.target.value.trim()})}
