@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .grepai/
+
+# 個人情報を含むCSVエクスポート
+users_export.csv
