@@ -1,4 +1,4 @@
-import { Interview, Answer, AnalysisResult, UserProfile } from "../types";
+import { Interview, Answer, AnalysisResult, UserProfile, PromptTemplate } from "../types";
 
 export interface AllowedUser {
   id: string; // Last 3 digits
@@ -12,7 +12,8 @@ const STORAGE_KEYS = {
   ANALYSES: "swot_analyses",
   USERS: "swot_users",
   ALLOWED_USERS: "swot_allowed_users",
-  SETTINGS: "swot_settings"
+  SETTINGS: "swot_settings",
+  PROMPT_TEMPLATES: "swot_prompt_templates",
 };
 
 export interface SystemSettings {
@@ -121,6 +122,24 @@ export const db = {
     localStorage.setItem(STORAGE_KEYS.ALLOWED_USERS, JSON.stringify(users));
     db._autoSync();
   },
+
+  // ── プロンプトテンプレート管理 (最大5件) ──────────────────────
+  getPromptTemplates: (): PromptTemplate[] => {
+    const data = localStorage.getItem(STORAGE_KEYS.PROMPT_TEMPLATES);
+    return data ? JSON.parse(data) : [];
+  },
+
+  savePromptTemplate: (tpl: PromptTemplate) => {
+    const current = db.getPromptTemplates().filter(t => t.id !== tpl.id);
+    const updated = [tpl, ...current].slice(0, 5); // 最大5件
+    localStorage.setItem(STORAGE_KEYS.PROMPT_TEMPLATES, JSON.stringify(updated));
+  },
+
+  deletePromptTemplate: (id: string) => {
+    const updated = db.getPromptTemplates().filter(t => t.id !== id);
+    localStorage.setItem(STORAGE_KEYS.PROMPT_TEMPLATES, JSON.stringify(updated));
+  },
+  // ─────────────────────────────────────────────────────────────
 
   _getTime: (obj: any): number => {
     if (!obj) return 0;

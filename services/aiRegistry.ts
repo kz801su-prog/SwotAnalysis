@@ -108,6 +108,55 @@ const mockProvider = {
   },
 };
 
+// ============================================================
+// 分析プロンプトテンプレート（管理画面から閲覧・編集可能）
+// プレースホルダー: {{TITLE}} {{TARGET_NAME}} {{SCOPE_BRIEF}}
+//                   {{ANSWER_COUNT}} {{ANSWER_DATA}}
+// ============================================================
+export const DEFAULT_ANALYSIS_PROMPT = `あなたは「グローバルSWOT戦略研究所」の特別分析チームです。
+このチームは以下の世界的権威の専門家で構成されています：
+
+■ 参加専門家チーム
+- 競争戦略・SWOT分析の世界的権威（Porter競争優位論・バリューチェーン分析のスペシャリスト）
+- メタ分析の第一人者（多数の定性回答から統計的パターンを抽出する質的研究の専門家）
+- 組織心理学・行動経済学の専門家（深層動機・認知バイアス除去の専門家）
+- 日本の組織文化・人事戦略に精通したシニアコンサルタント
+
+このチームが以下のアンケートデータを精密に解析し、戦略的SWOT分析レポートを作成します。
+
+【分析の原則】
+1. S/W/O/Tの各カテゴリにつき、必ず最低5個・最大10個の項目を抽出すること
+   （データが少ない場合でも、回答の行間・含意・文脈から洞察を補完し5個以上を確保すること）
+2. 表面的な言葉だけでなく、回答の背後にある潜在的意図・感情・繰り返しパターンを読み解くこと
+3. メタ分析手法を用いて、複数回答から共通テーマ・統計的傾向・外れ値を識別すること
+4. 戦略的重要度の高い順にソートして出力すること
+5. 個人名・個人特定情報は絶対に含めないこと（集団の傾向として記述）
+
+【コンテキスト】
+1. 分析対象: {{TITLE}} ({{TARGET_NAME}})
+2. 分析スコープ: {{SCOPE_BRIEF}}
+3. 回答数: {{ANSWER_COUNT}}名
+
+【回答データ（匿名化済み）】
+{{ANSWER_DATA}}
+
+【各SWOT項目の記述フォーマット】
+- item: 端的な見出し（20文字以内）
+- score: 戦略的重要度・確信度 (0-100)
+- reason: なぜこの結論に至ったか（メタ分析の根拠・複数回答のパターン・質的エビデンス）
+- reconfirm: さらなる確認が必要な仮説・暗黙の前提・潜在リスク
+- action: スコープに応じた具体的・実行可能な戦略的アクション
+  ※弱み(W)はリスク軽減と改善アクション、強み(S)は活用・展開戦略、
+    機会(O)は実現シナリオ、脅威(T)は対策・回避策を必ず記述
+- detail: 深層心理・組織力学・競争環境・長期予見を含む詳細考察（200文字以上）
+
+【notes（総括）について】
+チーム全員の見解を統合した「核心を突く総括コメント」を3〜5個作成すること。
+経営判断・人材育成・組織改革に直接活用できる、示唆に富む内容とすること。
+
+必ず以下のJSON形式のみを出力してください（余計な文章・マークダウンは一切不要）：
+{"swot":{"S":[{"item":"...","score":91,"reason":"...","reconfirm":"...","action":"...","detail":"..."}],"W":[],"O":[],"T":[]},"notes":["..."]}`;
+
 // --- Gemini Provider ---
 const geminiProvider = {
   async generateQuestions(args: {
@@ -166,6 +215,7 @@ const geminiProvider = {
     answers: Answer[];
     title: string;
     targetName: string;
+    customPromptTemplate?: string;
   }): Promise<AnalysisResult> {
     const apiKey = getApiKey();
     if (!apiKey) throw new Error("APIキーが未設定です。");
@@ -173,39 +223,23 @@ const geminiProvider = {
     const ai = new GoogleGenAI({ apiKey });
     const modelName = getModelName();
 
-    // Scope specific instructions
+    const answersJson = JSON.stringify(
+      args.answers.map((a, idx) => ({ respondent: `回答者${idx + 1}`, responses: a.responses }))
+    );
+
+    const template = args.customPromptTemplate || DEFAULT_ANALYSIS_PROMPT;
     const scopeBriefs: Record<InterviewScope, string> = {
-      personal:
-        "【個人レベル】セルフアウェアネス、スキルアップ、キャリア形成に焦点を当てたアドバイス。",
-      team: "【課レベル】チームワークの改善、上司・部下との連携、具体的な業務成果の最大化に焦点を当てたアドバイス。",
-      dept: "【部レベル】部門間シナジー、リソース配分の最適化、部門目標の必達、組織文化の醸成に焦点を当てたアドバイス。",
-      org: "【会社レベル】経営判断に役立つ市場優位性の定義、ブランド力強化、長期的な企業存続のためのリスク対策に焦点を当てたアドバイス。",
+      personal: "【個人レベル】セルフアウェアネス・スキル・キャリア形成に焦点を当て、個人の成長戦略を提示するアドバイス。",
+      team:     "【課レベル】チームワークの改善、上司・部下との連携、課独自の業務成果最大化と心理的安全性向上に焦点を当てたアドバイス。",
+      dept:     "【部レベル】部門間シナジー・リソース配分の最適化・中長期目標の必達・組織文化の醸成に焦点を当てたアドバイス。",
+      org:      "【会社レベル】市場優位性・ブランド力・経営戦略・全社的リスク対策・長期企業存続に焦点を当てた経営判断レベルのアドバイス。",
     };
-
-    const prompt = `あなたは組織戦略のプロフェッショナル分析官です。
-以下の分析スコープと回答データを元に、非常に高い品質の戦略的SWOT分析レポート（JSON形式）を作成してください。
-
-【コンテキスト】
-1. 分析対象: ${args.title} (${args.targetName})
-2. 分析スコープ: ${scopeBriefs[args.interview.scope] || args.interview.scope}
-3. 回答数: ${args.answers.length}名
-
-【回答データ（匿名）】
-${JSON.stringify(args.answers.map((a, idx) => ({ respondent: `回答者${idx + 1}`, responses: a.responses })))}
-
-【レポート作成ルール】
-1. S/W/O/Tの各項目につき、データから洞察される本質的なポイントを抽出すること。
-2. item: 端的な見出し（20文字以内）。
-3. score: データの確実性や重要度に基づき重み付け。
-4. reason: なぜその結論に至ったか、回答の根拠を提示（個人を特定できる情報は含めないこと）。
-5. reconfirm: 暗黙の了解や、更なる事実確認が必要な曖昧な点。
-6. action: 対象スコープに応じた具体的で実行可能な「戦略的行動」。特に弱み(W)の消し込みを目的とした改善アクションと注意点を必ず含めること。
-7. detail: 背景心理や戦略的価値、長期予見。数百文字程度のプロ品質の深い考察を記述（個人名・個人特定情報は使用不可）。
-8. notes: レポート全体の総括的な「核心を突く」一言アドバイス。ここに「本分析は弱みの消し込みを優先する傾向があります」という注意点を明示すること。
-9. 【重要】個人名・個人を特定できる情報は絶対に使用しないこと。これはメタ分析であり、集団の傾向として記述すること。
-
-必ず以下のJSON形式（オブジェクトのみ含む）のみを出力してください。
-{"swot":{"S":[{"item":"...","score":91,"reason":"...","reconfirm":"...","action":"...","detail":"..."}],"W":[],"O":[],"T":[]},"notes":["..."]}`;
+    const prompt = template
+      .replace("{{TITLE}}", args.title)
+      .replace("{{TARGET_NAME}}", args.targetName)
+      .replace("{{SCOPE_BRIEF}}", scopeBriefs[args.interview.scope] || args.interview.scope)
+      .replace("{{ANSWER_COUNT}}", String(args.answers.length))
+      .replace("{{ANSWER_DATA}}", answersJson);
 
     try {
       const response = await ai.models.generateContent({
@@ -298,6 +332,7 @@ export const aiRegistry = {
     answers: Answer[],
     title: string,
     targetName: string,
+    customPromptTemplate?: string,
   ) => {
     const apiKey = getApiKey();
     // Always use Gemini when key is available (auto-upgrades interviews stored with analysisAI="mock")
@@ -308,6 +343,7 @@ export const aiRegistry = {
           answers,
           title,
           targetName,
+          customPromptTemplate,
         });
       } catch (e: any) {
         console.error("[Registry] Gemini Full Failure:", e);

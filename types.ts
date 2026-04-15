@@ -106,3 +106,10 @@ export interface AIProvider {
   capabilities: ("generateQuestions" | "analyze")[];
   description: string;
 }
+
+export interface PromptTemplate {
+  id: string;
+  name: string;
+  prompt: string;
+  createdAt: string;
+}

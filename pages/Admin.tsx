@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Card, Button, Select, Input, Badge, Modal } from "../components/UI";
 import { db, AllowedUser } from "../services/storage";
-import { aiRegistry, providers } from "../services/aiRegistry";
+import { aiRegistry, providers, DEFAULT_ANALYSIS_PROMPT } from "../services/aiRegistry";
 import { downloadPersonalSwotReport } from "../services/personalReport";
 import {
   Interview,
@@ -11,6 +11,7 @@ import {
   ProviderId,
   UserProfile,
   Answer,
+  PromptTemplate,
   POSITION_OPTIONS,
   POSITION_HIERARCHY,
   PositionKey,
@@ -258,6 +259,12 @@ export default function AdminPage({
   const [settings, setSettings] = useState(db.settingsDb.get());
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // Prompt Editor State (Analyze tab)
+  const [customAnalysisPrompt, setCustomAnalysisPrompt] = useState("");
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>(() => db.getPromptTemplates());
+  const [promptTemplateName, setPromptTemplateName] = useState("");
+
   // Non-submitter / Cliq State
   const [nonSubmitInterviewId, setNonSubmitInterviewId] = useState("");
   const [checkedNonSubmitters, setCheckedNonSubmitters] = useState<Set<string>>(
@@ -437,7 +444,16 @@ export default function AdminPage({
     }
 
     let targetAnswers = [...freshAnswers];
-    let targetName = "組織全体";
+    // filterMode が ALL のときは scope に合わせた名称にする
+    const aggregateNames: Record<string, string> = {
+      personal: "全員集計（個人アンケート）",
+      team:     "全課集計",
+      dept:     "全部門集計",
+      org:      "全社集計",
+    };
+    let targetName = filterMode === "ALL"
+      ? (aggregateNames[selectedInterview.scope] || "全体集計")
+      : "組織全体";
     let resultMeta: Partial<AnalysisResult> = {};
 
     // Filter Logic (スコープに応じて自動決定)
@@ -505,6 +521,7 @@ export default function AdminPage({
         targetAnswers,
         selectedInterview.tag,
         targetName,
+        customAnalysisPrompt.trim() || undefined,
       );
 
       // Merge meta explicitly for types
@@ -1828,6 +1845,8 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
                   (i: Interview) => i.interviewId === selectedId,
                 );
                 if (!iv) return null;
+
+                // org は常に全体集計のみ
                 if (iv.scope === "org")
                   return (
                     <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 flex items-center gap-2">
@@ -1837,61 +1856,100 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
                       </span>
                     </div>
                   );
-                if (iv.scope === "dept")
-                  return (
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-emerald-600 uppercase tracking-wider flex items-center gap-1">
-                        <Target className="w-3 h-3" /> 対象部門
-                      </label>
-                      <Select
-                        value={targetValue}
-                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                          setTargetValue(e.target.value)
-                        }
-                        options={availableDepts.map((d) => ({
-                          value: d,
-                          label: d,
-                        }))}
-                      />
-                    </div>
-                  );
-                if (iv.scope === "team")
-                  return (
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-emerald-600 uppercase tracking-wider flex items-center gap-1">
-                        <Target className="w-3 h-3" /> 対象課
-                      </label>
-                      <Select
-                        value={targetValue}
-                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                          setTargetValue(e.target.value)
-                        }
-                        options={availableTeams.map((t) => ({
-                          value: t,
-                          label: t,
-                        }))}
-                      />
-                    </div>
-                  );
-                // personal scope
+
+                // personal / team / dept: 個別 or 全体集計 を選択できる
+                const scopeFilterKey =
+                  iv.scope === "dept" ? "DEPT"
+                  : iv.scope === "team" ? "TEAM"
+                  : "USER";
+                const aggregateLabel =
+                  iv.scope === "dept" ? "全部門集計"
+                  : iv.scope === "team" ? "全課集計"
+                  : "全員集計";
+
                 return (
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-emerald-600 uppercase tracking-wider flex items-center gap-1">
-                      <Target className="w-3 h-3" /> 対象者
-                    </label>
-                    <Select
-                      value={targetValue}
-                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                        setTargetValue(e.target.value)
-                      }
-                      options={availableUsers.map((u: UserProfile) => ({
-                        value: u.id,
-                        label: `${u.name}（${u.team || u.dept || u.id}）`,
-                      }))}
-                    />
-                    <div className="text-[10px] text-slate-400">
-                      ※ 個人名はレポートに出力されません
+                  <div className="space-y-3">
+                    {/* 個別 / 全体集計 トグル */}
+                    <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs font-bold">
+                      <button
+                        onClick={() => setFilterMode(scopeFilterKey)}
+                        className={`flex-1 py-2 transition-colors ${
+                          filterMode !== "ALL"
+                            ? "bg-emerald-500 text-white"
+                            : "bg-white text-slate-500 hover:bg-slate-50"
+                        }`}
+                      >
+                        個別選択
+                      </button>
+                      <button
+                        onClick={() => setFilterMode("ALL")}
+                        className={`flex-1 py-2 transition-colors ${
+                          filterMode === "ALL"
+                            ? "bg-indigo-500 text-white"
+                            : "bg-white text-slate-500 hover:bg-slate-50"
+                        }`}
+                      >
+                        {aggregateLabel}
+                      </button>
                     </div>
+
+                    {/* 個別選択時のみセレクター表示 */}
+                    {filterMode !== "ALL" && iv.scope === "dept" && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-emerald-600 uppercase tracking-wider flex items-center gap-1">
+                          <Target className="w-3 h-3" /> 対象部門
+                        </label>
+                        <Select
+                          value={targetValue}
+                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                            setTargetValue(e.target.value)
+                          }
+                          options={availableDepts.map((d) => ({ value: d, label: d }))}
+                        />
+                      </div>
+                    )}
+                    {filterMode !== "ALL" && iv.scope === "team" && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-emerald-600 uppercase tracking-wider flex items-center gap-1">
+                          <Target className="w-3 h-3" /> 対象課
+                        </label>
+                        <Select
+                          value={targetValue}
+                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                            setTargetValue(e.target.value)
+                          }
+                          options={availableTeams.map((t) => ({ value: t, label: t }))}
+                        />
+                      </div>
+                    )}
+                    {filterMode !== "ALL" && iv.scope === "personal" && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-emerald-600 uppercase tracking-wider flex items-center gap-1">
+                          <Target className="w-3 h-3" /> 対象者
+                        </label>
+                        <Select
+                          value={targetValue}
+                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                            setTargetValue(e.target.value)
+                          }
+                          options={availableUsers.map((u: UserProfile) => ({
+                            value: u.id,
+                            label: `${u.name}（${u.team || u.dept || u.id}）`,
+                          }))}
+                        />
+                        <div className="text-[10px] text-slate-400">
+                          ※ 個人名はレポートに出力されません
+                        </div>
+                      </div>
+                    )}
+                    {filterMode === "ALL" && (
+                      <div className="p-2.5 bg-indigo-50 rounded-lg border border-indigo-100 flex items-center gap-2">
+                        <Users className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        <span className="text-[11px] text-indigo-700 font-medium">
+                          このアンケートへの全回答を集約して分析します
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -1974,6 +2032,137 @@ ${notes ? `<div class="notes"><h2>AI考察メモ</h2><ul style="margin:0;padding
                     ).length;
                   })()}
                 </div>
+              </div>
+
+              {/* プロンプト確認・編集 */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <button
+                  onClick={() => {
+                    if (!showPromptEditor && !customAnalysisPrompt) {
+                      setCustomAnalysisPrompt(DEFAULT_ANALYSIS_PROMPT);
+                    }
+                    setShowPromptEditor(v => !v);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2.5 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-600 uppercase tracking-wider transition-colors"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Settings className="w-3.5 h-3.5 text-slate-400" />
+                    分析指示（プロンプト）確認・編集
+                  </span>
+                  <span className="text-slate-400">{showPromptEditor ? "▲" : "▼"}</span>
+                </button>
+                {showPromptEditor && (
+                  <div className="p-3 bg-white space-y-3">
+                    {/* 保存済みパターン選択 */}
+                    <div className="space-y-1.5">
+                      <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">保存済みパターン（最大5件）</div>
+                      <div className="space-y-1">
+                        {/* デフォルト行 */}
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => {
+                              setCustomAnalysisPrompt(DEFAULT_ANALYSIS_PROMPT);
+                              setPromptTemplateName("");
+                            }}
+                            className="flex-1 text-left px-2 py-1.5 rounded-lg text-[11px] font-medium border transition-colors bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
+                          >
+                            ★ デフォルト（世界的権威チーム）
+                          </button>
+                        </div>
+                        {/* ユーザー保存パターン */}
+                        {promptTemplates.map(tpl => (
+                          <div key={tpl.id} className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => {
+                                setCustomAnalysisPrompt(tpl.prompt);
+                                setPromptTemplateName(tpl.name);
+                              }}
+                              className={`flex-1 text-left px-2 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
+                                customAnalysisPrompt === tpl.prompt
+                                  ? "bg-indigo-50 border-indigo-200 text-indigo-700"
+                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                              }`}
+                            >
+                              {tpl.name}
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`「${tpl.name}」を削除しますか？`)) {
+                                  db.deletePromptTemplate(tpl.id);
+                                  setPromptTemplates(db.getPromptTemplates());
+                                }
+                              }}
+                              className="p-1 text-slate-300 hover:text-red-500 transition-colors shrink-0"
+                              title="削除"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                        {promptTemplates.length === 0 && (
+                          <div className="text-[10px] text-slate-400 italic px-1">保存済みパターンなし</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* テキストエリア */}
+                    <textarea
+                      value={customAnalysisPrompt}
+                      onChange={e => setCustomAnalysisPrompt(e.target.value)}
+                      rows={14}
+                      className="w-full text-[10px] font-mono text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-2 resize-y leading-relaxed focus:outline-none focus:border-emerald-300"
+                      placeholder="プロンプトテンプレートを編集..."
+                    />
+                    <div className="text-[9px] text-slate-400 leading-tight">
+                      ※ プレースホルダー: {"{{TITLE}} {{TARGET_NAME}} {{SCOPE_BRIEF}} {{ANSWER_COUNT}} {{ANSWER_DATA}}"}
+                    </div>
+
+                    {/* 名前を付けて保存 */}
+                    <div className="border-t border-slate-100 pt-2 space-y-1.5">
+                      <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">現在のプロンプトをパターンとして保存</div>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          value={promptTemplateName}
+                          onChange={e => setPromptTemplateName(e.target.value)}
+                          placeholder="パターン名（例: 厳格版 / 個人向け重点）"
+                          className="flex-1 text-xs border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-emerald-300"
+                          maxLength={30}
+                        />
+                        <button
+                          onClick={() => {
+                            const name = promptTemplateName.trim();
+                            if (!name) { alert("パターン名を入力してください。"); return; }
+                            if (promptTemplates.length >= 5 && !promptTemplates.find(t => t.name === name)) {
+                              alert("保存できるパターンは最大5件です。\n不要なパターンを削除してから保存してください。"); return;
+                            }
+                            const existing = promptTemplates.find(t => t.name === name);
+                            const tpl: PromptTemplate = {
+                              id: existing?.id || `pt_${Date.now().toString(36)}`,
+                              name,
+                              prompt: customAnalysisPrompt,
+                              createdAt: existing?.createdAt || new Date().toISOString(),
+                            };
+                            db.savePromptTemplate(tpl);
+                            setPromptTemplates(db.getPromptTemplates());
+                            alert(`「${name}」を保存しました。`);
+                          }}
+                          disabled={!customAnalysisPrompt.trim() || !promptTemplateName.trim()}
+                          className="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                        >
+                          保存
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setCustomAnalysisPrompt(DEFAULT_ANALYSIS_PROMPT)}
+                      className="text-[10px] text-slate-400 hover:text-emerald-600 hover:underline"
+                    >
+                      デフォルトに戻す
+                    </button>
+                  </div>
+                )}
               </div>
 
               <Button
